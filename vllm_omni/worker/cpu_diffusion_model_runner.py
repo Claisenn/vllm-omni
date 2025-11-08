@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 class CPUDiffusionModelRunner(OmniCPUModelRunner):
     """Diffusion model runner for vLLM-omni (non-autoregressive).
 
-    - Reuses GPUModelRunner preparation, multimodal handling, and TP/PP/DP glue.
+    - Reuses CPUModelRunner preparation, multimodal handling, and TP/PP/DP glue.
     - Does not compute logits or perform token sampling.
     - Executes diffusion process and returns tensors via `pooler_output`.
     """

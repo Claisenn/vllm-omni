@@ -40,9 +40,9 @@ class OmniCPUModelRunner(CPUModelRunner):
         output.
 
         The updated states are used by the `_prepare_inputs` function to create
-        the input GPU tensors for the model.
+        the input CPU tensors for the model.
 
-        The SamplingMetadata is updated and copied to the GPU if there is a
+        The SamplingMetadata is updated and copied to the CPU if there is a
         new/resumed/paused/finished request in the batch.
         """
         # Remove finished requests from the cached states.
