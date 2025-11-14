@@ -1,4 +1,4 @@
-"""AR GPU Model Runner for vLLM-omni.
+"""AR CPU Model Runner for vLLM-omni.
 
 Exposes per-request hidden representations via ModelRunnerOutput.pooler_output
 and also outputs sampled tokens.
