@@ -11,7 +11,7 @@ from vllm.platforms import current_platform, CpuArchEnum
 from vllm.v1.worker.cpu_worker import CPUWorker
 from vllm.v1.worker.gpu_worker import init_worker_distributed_environment
 
-from vllm_omni.worker.cpu_ar_model_runner import CPUARModelRunner
+from vllm_omni.worker.cpu.cpu_ar_model_runner import CPUARModelRunner
 
 logger = init_logger(__name__)
 

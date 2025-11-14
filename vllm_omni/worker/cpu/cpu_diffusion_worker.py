@@ -13,7 +13,7 @@ from vllm.v1.worker.cpu_worker import CPUWorker
 
 from vllm.v1.worker.gpu_worker import init_worker_distributed_environment
 
-from vllm_omni.worker.cpu_diffusion_model_runner import CPUDiffusionModelRunner
+from vllm_omni.worker.cpu.cpu_diffusion_model_runner import CPUDiffusionModelRunner
 
 
 logger = init_logger(__name__)

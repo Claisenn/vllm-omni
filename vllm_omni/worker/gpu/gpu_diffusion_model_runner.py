@@ -10,11 +10,7 @@ import torch
 from vllm.config import CUDAGraphMode
 from vllm.forward_context import BatchDescriptor
 from vllm.multimodal.inputs import MultiModalKwargs
-from vllm.utils import cdiv
-from vllm.v1.attention.backends.utils import (
-    CommonAttentionMetadata,
-    split_attn_metadata,
-)
+from vllm.v1.attention.backends.utils import CommonAttentionMetadata
 from vllm.v1.core.sched.output import SchedulerOutput
 from vllm.v1.spec_decode.eagle import EagleProposer
 from vllm.v1.utils import record_function_or_nullcontext
@@ -29,15 +25,15 @@ from vllm.v1.worker.gpu_model_runner import (
 from vllm.v1.worker.ubatch_utils import UBatchSlices
 from vllm.v1.worker.utils import sanity_check_mm_encoder_outputs
 from vllm_omni.outputs import OmniModelRunnerOutput
-from vllm_omni.worker.cpu_model_runner import OmniCPUModelRunner
+from vllm_omni.worker.gpu.gpu_model_runner import OmniGPUModelRunner
 
 logger = logging.getLogger(__name__)
 
 
-class CPUDiffusionModelRunner(OmniCPUModelRunner):
+class GPUDiffusionModelRunner(OmniGPUModelRunner):
     """Diffusion model runner for vLLM-omni (non-autoregressive).
 
-    - Reuses CPUModelRunner preparation, multimodal handling, and TP/PP/DP glue.
+    - Reuses GPUModelRunner preparation, multimodal handling, and TP/PP/DP glue.
     - Does not compute logits or perform token sampling.
     - Executes diffusion process and returns tensors via `pooler_output`.
     """

@@ -25,15 +25,15 @@ from vllm.v1.worker.gpu_model_runner import (
 from vllm.v1.worker.ubatch_utils import UBatchSlices
 from vllm.v1.worker.utils import sanity_check_mm_encoder_outputs
 from vllm_omni.outputs import OmniModelRunnerOutput
-from vllm_omni.worker.gpu_model_runner import OmniGPUModelRunner
+from vllm_omni.worker.cpu.cpu_model_runner import OmniCPUModelRunner
 
 logger = logging.getLogger(__name__)
 
 
-class GPUDiffusionModelRunner(OmniGPUModelRunner):
+class CPUDiffusionModelRunner(OmniCPUModelRunner):
     """Diffusion model runner for vLLM-omni (non-autoregressive).
 
-    - Reuses GPUModelRunner preparation, multimodal handling, and TP/PP/DP glue.
+    - Reuses CPUModelRunner preparation, multimodal handling, and TP/PP/DP glue.
     - Does not compute logits or perform token sampling.
     - Executes diffusion process and returns tensors via `pooler_output`.
     """
