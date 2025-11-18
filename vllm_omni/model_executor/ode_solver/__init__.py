@@ -1,4 +1,4 @@
-from vllm_omni.model_executor.models.ode_solver.runger_kutta_4 import RungeKutta4ODESolver
+from vllm_omni.model_executor.ode_solver.runger_kutta_4 import RungeKutta4ODESolver
 
 _ODE_SOLVERS = {
     "RungeKutta4ODESolver": RungeKutta4ODESolver,

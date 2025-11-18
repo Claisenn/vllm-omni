@@ -34,7 +34,7 @@ from vllm.v1.outputs import SamplerOutput
 from vllm.v1.sample.metadata import SamplingMetadata
 from vllm.v1.sample.sampler import Sampler
 
-from vllm_omni.model_executor.models.ode_solver import RungeKutta4ODESolver
+from vllm_omni.model_executor.ode_solver import RungeKutta4ODESolver
 
 
 # Provide a no-op auto_docstring decorator to satisfy annotations if missing
