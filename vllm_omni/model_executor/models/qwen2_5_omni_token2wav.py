@@ -1255,6 +1255,13 @@ class Qwen2_5OmniToken2WavDiTModel(nn.Module):
         return generated_mel_spectrogram
 
 
+@auto_docstring(
+    custom_intro="""
+    The full Qwen2.5Omni Token2Wav model. Consists a DiT model take speech
+    tokens as input and predict mel spectrogram and a BigVGAN vocoder take
+    mel spectrogram as input and predict waveform.
+    """
+)
 class Qwen2_5OmniToken2WavModel(nn.Module):
     def __init__(self, *, vllm_config: VllmConfig, prefix=""):
         super().__init__()
