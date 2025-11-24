@@ -3,4 +3,4 @@ steps:
     commands:
       - ".buildkite/scripts/run_qwen_offline_example.sh"
     agents:
-      queue: "gpu"
+      queue: "gpu_1_queue"
