@@ -172,7 +172,7 @@ class GPUARModelRunner(OmniGPUModelRunner):
             encoder_inputs = self._extract_encoder_inputs(scheduler_output)
             model_kwargs.update(encoder_inputs)
 
-        if self.model.has_process:
+        if self.model.has_preprocess:
             # Overlay custom prompt_embeds per request for the prompt portion;
             # collect additional_information (tensor/list) for prefill portion only
             for req_index, req_id in enumerate(self.input_batch.req_ids):
@@ -186,7 +186,7 @@ class GPUARModelRunner(OmniGPUModelRunner):
                 span_len = int(e) - int(s)
 
                 # call the custom process function
-                req_input_ids, req_embeds, update_dict = self.model.process_fn(
+                req_input_ids, req_embeds, update_dict = self.model.preprocess(
                     input_ids=input_ids[s:e],
                     inputs_embeds=inputs_embeds[s:e],
                     **req_infos

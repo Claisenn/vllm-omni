@@ -34,6 +34,7 @@ from vllm_omni.model_executor.models.qwen2_5_omni.qwen2_5_omni_thinker import (
 )
 from vllm_omni.model_executor.models.utils import add_prefix_to_loaded_weights, split_list_into_ranges
 from vllm_omni.model_executor.models.vision import get_llm_pos_ids_for_vision
+from vllm_omni.model_executor.preprocess_mixin import PreprocessMixin
 
 TALKER_CODEC_EOS_TOKEN_ID = 8294
 TALKER_CODEC_BOS_TOKEN_ID = 8293
@@ -56,11 +57,12 @@ logger = init_logger(__name__)
     dummy_inputs=Qwen2_5OmniThinkerDummyInputsBuilder,
 )
 class Qwen2_5OmniForConditionalGeneration(
-    nn.Module, SupportsMultiModal, SupportsPP, Qwen2_5OmniConditionalGenerationMixin, SupportsMRoPE
+    nn.Module, SupportsMultiModal, SupportsPP, SupportsMRoPE,
+    Qwen2_5OmniConditionalGenerationMixin, PreprocessMixin
 ):
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
-        self.has_process = False
+        self.has_preprocess = False
         self.have_multimodal_outputs = True
         config: Qwen2_5OmniConfig = vllm_config.model_config.hf_config
         multimodal_config = vllm_config.model_config.multimodal_config
@@ -91,8 +93,9 @@ class Qwen2_5OmniForConditionalGeneration(
             self.token2wav = None
 
         elif self.model_stage == "talker":
-            # temporal use this prepresation
-            self.has_process = True
+            # register the process function for the talker stage
+            self.has_preprocess = True
+            self.set_preprocess(self.process_fn)
             self.thinker = None
             # Initialize talker model wrapper (handles projection + LM)
             self.talker = init_vllm_registered_model(
