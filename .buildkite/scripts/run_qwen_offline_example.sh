@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
-sudo apt update
-sudo apt install ffmpeg -y
 
 # Move to repo root (script lives in .buildkite/scripts/)
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -31,6 +29,5 @@ source .venv/bin/activate
 EXAMPLE_DIR="examples/offline_inference/qwen2_5_omni"
 cd "${EXAMPLE_DIR}"
 
-python end2end.py --output-wav output_audio \
-                  --query-type use_audio_in_video \
+python end2end.py --query-type text \
                   --no-save-results
