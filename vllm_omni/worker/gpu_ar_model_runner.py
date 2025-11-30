@@ -1,4 +1,4 @@
-"""AR GPU Model Runner for vLLM-omni.
+"""AR GPU Model Runner for vLLM-Omni.
 
 Exposes per-request hidden representations via ModelRunnerOutput.pooler_output
 and also outputs sampled tokens.
@@ -6,9 +6,6 @@ and also outputs sampled tokens.
 
 from __future__ import annotations
 
-from typing import Any
-
-import numpy as np
 import torch
 from vllm.forward_context import BatchDescriptor
 from vllm.logger import init_logger
@@ -25,10 +22,8 @@ from vllm.v1.worker.gpu_model_runner import (
     has_kv_transfer_group,
     set_forward_context,
 )
-from vllm.v1.worker.ubatch_utils import UBatchSlices
 from vllm.v1.worker.utils import is_residual_scattered_for_sp
 
-from vllm_omni.engine import AdditionalInformationPayload, PromptEmbedsPayload
 from vllm_omni.outputs import OmniModelRunnerOutput
 from vllm_omni.worker.gpu_model_runner import OmniGPUModelRunner
 
@@ -48,168 +43,9 @@ class GPUARModelRunner(OmniGPUModelRunner):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.input_ids = self._make_buffer(self.max_num_tokens, dtype=torch.int32)
-
-    def _preprocess(
-        self,
-        scheduler_output: SchedulerOutput,
-        num_scheduled_tokens_np: np.ndarray,
-        intermediate_tensors: IntermediateTensors | None = None,
-        ubatch_slices: UBatchSlices | None = None,
-        num_tokens_after_padding: torch.Tensor | None = None,
-    ) -> tuple[
-        int,
-        int,
-        torch.Tensor | None,
-        torch.Tensor | None,
-        torch.Tensor | None,
-        torch.Tensor,
-        IntermediateTensors | None,
-        dict[str, Any],
-        dict[str, dict] | None,
-    ]:
-        num_scheduled_tokens = scheduler_output.total_num_scheduled_tokens
-        if ubatch_slices:
-            assert num_tokens_after_padding is not None
-            num_input_tokens = int(num_tokens_after_padding[0].item() * 2)
-            self.pad_out_ubatch_slice(ubatch_slices, num_input_tokens)
-        elif ubatch_slices is None:
-            num_input_tokens = self._get_num_input_tokens(num_scheduled_tokens)
-            num_pad, num_tokens_after_padding = self.get_dp_padding(num_input_tokens)
-            num_input_tokens += num_pad
-
-        # _prepare_inputs may reorder the batch, so we must gather multi
-        # modal outputs after that to ensure the correct order
-        if self.supports_mm_inputs and get_pp_group().is_first_rank and not self.model_config.is_encoder_decoder:
-            # Run the multimodal encoder if any.
-            self._execute_mm_encoder(scheduler_output)
-            mm_embeds = self._gather_mm_embeddings(scheduler_output)
-
-            # NOTE(woosuk): To unify token ids and soft tokens (vision
-            # embeddings), we always use embeddings (rather than token ids)
-            # as input to the multimodal model, even when the input is text.
-            inputs_embeds_scheduled = self.model.get_input_embeddings(
-                input_ids=self.input_ids.gpu[:num_scheduled_tokens],
-                multimodal_embeddings=mm_embeds or None,
-            )
-
-            # TODO(woosuk): Avoid the copy. Optimize.
-            self.inputs_embeds.gpu[:num_scheduled_tokens].copy_(inputs_embeds_scheduled)
-
-            # Reset per-step additional information collector (deprecated concat path)
-            if hasattr(self, "_forward_additional_information"):
-                self._forward_additional_information = None
-            # New: per-request additional information for this step
-
-            # Overlay custom prompt_embeds per request for the prompt portion;
-            # collect additional_information (tensor/list) for prefill portion only
-            for req_index, req_id in enumerate(self.input_batch.req_ids):
-                req_state = self.requests[req_id]
-                pe_cpu = getattr(req_state, "prompt_embeds_cpu", None)
-                num_computed_tokens = int(self.input_batch.num_computed_tokens_cpu[req_index])
-                prompt_len = len(req_state.prompt_token_ids)
-                prompt_remaining = max(0, prompt_len - num_computed_tokens)
-                sched_tokens = int(num_scheduled_tokens_np[req_index])
-                overlay_len = min(sched_tokens, prompt_remaining)
-                if overlay_len <= 0:
-                    continue
-                if pe_cpu is not None:
-                    src = pe_cpu[num_computed_tokens : num_computed_tokens + overlay_len].to(
-                        dtype=self.dtype, device=self.device, non_blocking=True
-                    )
-                    start_offset = int(self.query_start_loc.cpu[req_index])
-                    self.inputs_embeds[start_offset : start_offset + overlay_len].copy_(src)
-
-            input_ids = self.input_ids.gpu[:num_input_tokens]
-            inputs_embeds = self.inputs_embeds.gpu[:num_input_tokens]
-            model_kwargs = {
-                **self._init_model_kwargs(num_scheduled_tokens),
-                **self._extract_mm_kwargs(scheduler_output),
-            }
-        elif self.enable_prompt_embeds and get_pp_group().is_first_rank:
-            # Get the input embeddings for the tokens that are not input embeds,
-            # then put them into the appropriate positions.
-            # TODO(qthequartermasterman): Since even when prompt embeds are
-            # enabled, (a) not all requests will use prompt embeds, and (b)
-            # after the initial prompt is processed, the rest of the generated
-            # tokens will be token ids, it is not desirable to have the
-            # embedding layer outside of the CUDA graph all the time. The v0
-            # engine avoids this by "double compiling" the CUDA graph, once
-            # with input_ids and again with inputs_embeds, for all num_tokens.
-            # If a batch only has token ids, then including the embedding layer
-            # in the CUDA graph will be more performant (like in the else case
-            # below).
-            token_ids_idx = self.is_token_ids.gpu[:num_scheduled_tokens].nonzero(as_tuple=False).squeeze(1)
-            # Some tokens ids may need to become embeds
-            if token_ids_idx.numel() > 0:
-                token_ids = self.input_ids.gpu[token_ids_idx]
-                tokens_to_embeds = self.model.get_input_embeddings(input_ids=token_ids)
-                self.inputs_embeds.gpu[token_ids_idx] = tokens_to_embeds
-
-            inputs_embeds = self.inputs_embeds.gpu[:num_input_tokens]
-            model_kwargs = self._init_model_kwargs(num_input_tokens)
-            input_ids = None
-        else:
-            # For text-only models, we use token ids as input.
-            # While it is possible to use embeddings as input just like the
-            # multimodal models, it is not desirable for performance since
-            # then the embedding layer is not included in the CUDA graph.
-            input_ids = self.input_ids.gpu[:num_input_tokens]
-            inputs_embeds = None
-            model_kwargs = self._init_model_kwargs(num_input_tokens)
-        if self.uses_mrope:
-            positions = self.mrope_positions.gpu[:, :num_input_tokens]
-        else:
-            positions = self.positions.gpu[:num_input_tokens]
-
-        if get_pp_group().is_first_rank:
-            intermediate_tensors = None
-        else:
-            intermediate_tensors = self.sync_and_slice_intermediate_tensors(
-                num_input_tokens, intermediate_tensors, True
-            )
-
-        if self.model_config.is_encoder_decoder and scheduler_output.scheduled_encoder_inputs:
-            encoder_inputs = self._extract_encoder_inputs(scheduler_output)
-            model_kwargs.update(encoder_inputs)
-
-        if self.model.has_preprocess:
-            # Overlay custom prompt_embeds per request for the prompt portion;
-            # collect additional_information (tensor/list) for prefill portion only
-            for req_index, req_id in enumerate(self.input_batch.req_ids):
-                req_state = self.requests.get(req_id)
-                req_infos = (getattr(req_state, "additional_information_cpu", None)
-                             if req_state is not None else None)
-
-                start_offset = int(self.query_start_loc.cpu[req_index])
-                sched_tokens = int(num_scheduled_tokens_np[req_index])
-                s, e = start_offset, start_offset + sched_tokens
-                span_len = int(e) - int(s)
-
-                # call the custom process function
-                req_input_ids, req_embeds, update_dict = self.model.preprocess(
-                    input_ids=input_ids[s:e],
-                    inputs_embeds=inputs_embeds[s:e],
-                    **req_infos
-                )
-                # TODO(Peiqi): the merge stage could move out from the critical path
-                self._merge_additional_information_update(req_id, update_dict)
-
-                # update the inputs_embeds and input_ids
-                seg_len = min(span_len, req_embeds.shape[0])
-                inputs_embeds[s : s + seg_len] = req_embeds[:seg_len]
-                if isinstance(req_input_ids, torch.Tensor) and req_input_ids.numel() == seg_len:
-                    input_ids[s : s + seg_len] = req_input_ids
-
-        return (
-            num_scheduled_tokens,
-            num_input_tokens,
-            num_tokens_after_padding,
-            input_ids,
-            inputs_embeds,
-            positions,
-            intermediate_tensors,
-            model_kwargs,
-        )
+        # each model stage has their own hidden size
+        self.hidden_size = self.model_config.hf_text_config.hidden_size
+        self.inputs_embeds = self._make_buffer(self.max_num_tokens, self.hidden_size, dtype=self.dtype, numpy=False)
 
     @torch.inference_mode()
     def execute_model(
@@ -222,58 +58,9 @@ class GPUARModelRunner(OmniGPUModelRunner):
                 # Update persistent batch states.
                 self._update_states(scheduler_output)
 
-                # Decode per-request prompt_embeds / additional_hidden_states payloads
+                # Decode per-request prompt_embeds / additional_information payloads
                 # (if present) into CPU tensors
-                try:
-                    new_reqs = getattr(scheduler_output, "scheduled_new_reqs", [])
-                    if new_reqs:
-                        for nr in new_reqs:
-                            req_id = getattr(nr, "req_id", None) or getattr(nr, "request_id", None)
-                            if req_id is None:
-                                continue
-                            # prompt_embeds
-                            payload_pe = getattr(nr, "prompt_embeds", None)
-                            if payload_pe is not None:
-                                if isinstance(payload_pe, torch.Tensor):
-                                    pe_cpu = payload_pe.detach().to("cpu").contiguous()
-                                elif isinstance(payload_pe, PromptEmbedsPayload):
-                                    dt = np.dtype(getattr(payload_pe, "dtype", "float32"))
-                                    arr = np.frombuffer(payload_pe.data, dtype=dt)
-                                    arr = arr.reshape(payload_pe.shape)
-                                    pe_cpu = torch.from_numpy(arr)
-                                else:
-                                    pe_cpu = None
-                                if pe_cpu is not None and req_id in self.requests:
-                                    setattr(
-                                        self.requests[req_id],
-                                        "prompt_embeds_cpu",
-                                        pe_cpu,
-                                    )
-                            # additional_information
-                            payload_info = getattr(nr, "additional_information", None)
-                            if payload_info is not None:
-                                info_dict = {}
-                                if isinstance(payload_info, dict):
-                                    # Already decoded
-                                    info_dict = payload_info
-                                elif isinstance(payload_info, AdditionalInformationPayload):
-                                    for k, entry in payload_info.entries.items():
-                                        if entry.tensor_data is not None:
-                                            dt = np.dtype(getattr(entry, "tensor_dtype", "float32"))
-                                            arr = np.frombuffer(entry.tensor_data, dtype=dt)
-                                            arr = arr.reshape(entry.tensor_shape)
-                                            info_dict[k] = torch.from_numpy(arr)
-                                        else:
-                                            info_dict[k] = entry.list_data
-                                if info_dict and req_id in self.requests:
-                                    setattr(
-                                        self.requests[req_id],
-                                        "additional_information_cpu",
-                                        info_dict,
-                                    )
-                except Exception as e:
-                    logger.error(f"Error decoding prompt_embeds / additional_information: {e}")
-                    pass
+                self._decode_and_store_request_payloads(scheduler_output)
 
                 if not scheduler_output.total_num_scheduled_tokens:
                     if not has_kv_transfer_group():
@@ -308,6 +95,7 @@ class GPUARModelRunner(OmniGPUModelRunner):
                 positions,
                 intermediate_tensors,
                 model_kwargs,
+                per_req_additional_information,
             ) = self._preprocess(
                 scheduler_output,
                 num_scheduled_tokens_np,
@@ -342,9 +130,7 @@ class GPUARModelRunner(OmniGPUModelRunner):
             record_function_or_nullcontext("Forward"),
             self.maybe_get_kv_connector_output(scheduler_output) as kv_connector_output,
         ):
-            # TODO(Peiqi): delete this
-            model_kwargs_extra = {}
-
+            model_kwargs_extra = self._build_model_kwargs_extra(per_req_additional_information, num_scheduled_tokens_np)
             model_output = self.model(
                 input_ids=input_ids,
                 positions=positions,
@@ -366,9 +152,15 @@ class GPUARModelRunner(OmniGPUModelRunner):
                 hidden_states = model_output
                 aux_hidden_states = None
 
-            hidden_states, multimodal_outputs = self.extract_multimodal_outputs(hidden_states)
-            # TODO(Peiqi): move the merge stage out here
-
+            # hidden_states, multimodal_outputs = self.extract_multimodal_outputs(
+            #     hidden_states
+            # )
+            multimodal_outputs = model_output.multimodal_outputs
+            hidden_states = model_output.text_hidden_states
+            # The model side may return per-request additional_information updates (model-agnostic channel).
+            # Convention: multimodal_outputs["additional_information_update"] is a list[dict] in batch order;
+            # the runner merges it into the corresponding request's additional_information_cpu for subsequent decode.
+            self._process_additional_information_updates(multimodal_outputs)
             if not self.broadcast_pp_output:
                 # Common case.
                 if not get_pp_group().is_last_rank:
@@ -484,12 +276,42 @@ class GPUARModelRunner(OmniGPUModelRunner):
 
         # Convert to per-request tensors on CPU
         hidden_states_cpu = hidden_states.detach().to("cpu").contiguous()
+        # pooler_output: list[torch.Tensor | None] = []
         pooler_output: list[torch.Tensor | None] = []
         prev_logits_index = 0
-        for logits_index in logits_indices:
-            pooler_output.append(hidden_states_cpu[prev_logits_index : logits_index + 1])
+        for rid, logits_index in zip(req_ids_output_copy, logits_indices):
+            # Base payload: hidden slice for this request in this iteration
+            hidden_slice = hidden_states_cpu[prev_logits_index : logits_index + 1]
+            payload: dict[str, object] = {"hidden": hidden_slice}
+            # Merge multimodal_outputs if present
+            if isinstance(multimodal_outputs, dict) and multimodal_outputs:
+                mm_payload: dict[str, object] = {}
+                for k, v in multimodal_outputs.items():
+                    try:
+                        # Case 1: tensor aligned on token dimension
+                        if isinstance(v, torch.Tensor) and v.shape[0] == hidden_states_cpu.shape[0]:
+                            mm_payload[k] = v.detach().to("cpu")[prev_logits_index : logits_index + 1].contiguous()
+                        # Case 2: nested dict of tensors aligned on token dimension (e.g., selected_hidden_layers)
+                        elif isinstance(v, dict):
+                            sub_dict: dict[str, torch.Tensor] = {}
+                            for sk, sv in v.items():
+                                if isinstance(sv, torch.Tensor) and sv.shape[0] == hidden_states_cpu.shape[0]:
+                                    sub_dict[str(sk)] = (
+                                        sv.detach().to("cpu")[prev_logits_index : logits_index + 1].contiguous()
+                                    )
+                            if sub_dict:
+                                mm_payload[k] = sub_dict
+                        elif isinstance(v, list):
+                            element: torch.Tensor = v[0]
+                            multimodal_outputs[k] = v[1:] if len(v) > 1 else v
+                            mm_payload[k] = element
+                    except Exception as e:
+                        # Best-effort; skip malformed entries
+                        logger.error(f"Error in merge multimodal outputs: {e}")
+                if mm_payload:
+                    payload.update(mm_payload)
+            pooler_output.append(payload)  # type: ignore[arg-type]
             prev_logits_index = logits_index + 1
-
         output = OmniModelRunnerOutput(
             req_ids=req_ids_output_copy,
             req_id_to_index=req_id_to_index_output_copy,
@@ -533,3 +355,5 @@ class GPUARModelRunner(OmniGPUModelRunner):
             else:
                 merged[k] = v
         setattr(req_state, "additional_information_cpu", merged)
+
+    # ===== Helper functions extracted for clarity and reuse =====

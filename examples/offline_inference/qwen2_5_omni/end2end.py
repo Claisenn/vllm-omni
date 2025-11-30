@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """
-This example shows how to use vLLM-omni for running offline inference
+This example shows how to use vLLM-Omni for running offline inference
 with the correct prompt format on Qwen2.5-Omni
 """
 
@@ -16,7 +16,7 @@ from vllm.multimodal.image import convert_image_mode
 from vllm.sampling_params import SamplingParams
 from vllm.utils import FlexibleArgumentParser
 
-from vllm_omni import OmniLLM
+from vllm_omni.entrypoints.omni_llm import OmniLLM
 
 SEED = 42
 
