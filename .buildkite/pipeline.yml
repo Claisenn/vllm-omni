@@ -3,7 +3,7 @@ steps:
     key: image-build
     commands:
       - "docker build --file docker/Dockerfile.ci -t vllm-omni-ci ."
-      - "docker tag vllm-omni-ci public.ecr.aws/q9t5s3a7/vllm-omni-ci:latest"
+      - "docker tag vllm-omni-ci public.ecr.aws/q9t5s3a7/vllm-ci-test-repo:omni-latest"
       - "docker push public.ecr.aws/q9t5s3a7/vllm-ci-test-repo:omni-latest"
     agents:
       queue: "cpu_queue_premerge_us_east_1"
