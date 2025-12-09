@@ -1,4 +1,5 @@
 name: vllm_omni_ci
+github_repo_name: vllm-project/vllm-omni
 job_dirs:
   - ".buildkite/jobs"
 run_all_patterns: []
