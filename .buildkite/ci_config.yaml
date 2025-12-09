@@ -1,4 +1,4 @@
-name: vllm_ci
+name: vllm_omni_ci
 job_dirs:
   - ".buildkite/jobs"
 run_all_patterns: []

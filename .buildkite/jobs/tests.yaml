@@ -6,6 +6,7 @@ steps:
   commands:
     - ".buildkite/scripts/simple_test.sh"
   no_gpu: true
+  no_plugin: true
 
 - label: "Diffusion Model Test"
   timeout_in_minutes: 15
