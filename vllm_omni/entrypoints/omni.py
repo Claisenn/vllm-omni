@@ -30,6 +30,7 @@ from vllm_omni.distributed.ray_utils.utils import (
 )
 from vllm_omni.entrypoints.log_utils import OrchestratorMetrics
 from vllm_omni.entrypoints.omni_stage import OmniStage
+from vllm_omni.entrypoints.stage_config import StageConfigFactory
 from vllm_omni.entrypoints.stage_utils import SHUTDOWN_TASK, OmniStageTaskType
 from vllm_omni.entrypoints.stage_utils import maybe_load_from_ipc as _load
 from vllm_omni.entrypoints.utils import (
@@ -123,72 +124,26 @@ class OmniBase:
         self._initialize_stages(model, kwargs)
 
     def _get_default_cache_config(self, cache_backend: str | None) -> dict[str, Any] | None:
-        if cache_backend == "cache_dit":
-            return {
-                "Fn_compute_blocks": 1,
-                "Bn_compute_blocks": 0,
-                "max_warmup_steps": 4,
-                "residual_diff_threshold": 0.24,
-                "max_continuous_cached_steps": 3,
-                "enable_taylorseer": False,
-                "taylorseer_order": 1,
-                "scm_steps_mask_policy": None,
-                "scm_steps_policy": "dynamic",
-            }
-        if cache_backend == "tea_cache":
-            return {
-                "rel_l1_thresh": 0.2,
-            }
-        return None
+        """Delegate to StageConfigFactory for cache config defaults."""
+        return StageConfigFactory._get_default_cache_config(cache_backend)
 
     def _normalize_cache_config(self, cache_backend: str | None, cache_config: Any | None) -> Any | None:
-        if isinstance(cache_config, str):
-            try:
-                cache_config = json.loads(cache_config)
-            except json.JSONDecodeError:
-                logger.warning("Invalid cache_config JSON, using defaults.")
-                cache_config = None
-        if cache_config is None and cache_backend not in (None, "", "none"):
-            cache_config = self._get_default_cache_config(cache_backend)
-        return cache_config
+        """Delegate to StageConfigFactory for cache config normalization."""
+        return StageConfigFactory._normalize_cache_config(cache_backend, cache_config)
 
-    def _create_default_diffusion_stage_cfg(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Create default diffusion stage configuration."""
-        # We temporally create a default config for diffusion stage.
-        # In the future, we should merge the default config with the user-provided config.
-        # TODO: hack, convert dtype to string to avoid non-premitive omegaconf create error.
-        if "dtype" in kwargs:
-            kwargs["dtype"] = str(kwargs["dtype"])
-        cache_backend = kwargs.get("cache_backend", "none")
-        cache_config = self._normalize_cache_config(cache_backend, kwargs.get("cache_config", None))
-        # TODO: hack, calculate devices based on parallel config.
-        devices = "0"
-        if "parallel_config" in kwargs:
-            num_devices = kwargs["parallel_config"].world_size
-            for i in range(1, num_devices):
-                devices += f",{i}"
-        default_stage_cfg = [
-            {
-                "stage_id": 0,
-                "stage_type": "diffusion",
-                "runtime": {
-                    "process": True,
-                    "devices": devices,
-                    "max_batch_size": 1,
-                },
-                "engine_args": OmegaConf.create(
-                    {
-                        **kwargs,
-                        "cache_backend": cache_backend,
-                        "cache_config": cache_config,
-                    }
-                ),
-                "final_output": True,
-                "final_output_type": "image",
-            }
-        ]
-        default_stage_cfg[0]["engine_args"]["model_stage"] = "diffusion"
-        return default_stage_cfg
+    def _create_default_diffusion_stage_cfg(self, kwargs: dict[str, Any]) -> list[Any]:
+        """Create default diffusion stage configuration using StageConfigFactory.
+        
+        This method uses the structured factory pattern to build a robust,
+        type-safe stage configuration instead of manually constructing dictionaries.
+        
+        Args:
+            kwargs: Dictionary of configuration parameters
+            
+        Returns:
+            List containing a single OmegaConf DictConfig for the diffusion stage
+        """
+        return StageConfigFactory.create_default_diffusion(kwargs)
 
     def _initialize_stages(self, model: str, kwargs: dict[str, Any]) -> None:
         """Initialize stage list management."""

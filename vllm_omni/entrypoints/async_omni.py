@@ -29,6 +29,7 @@ from vllm_omni.entrypoints.log_utils import (
 )
 from vllm_omni.entrypoints.omni import OmniBase
 from vllm_omni.entrypoints.omni_stage import OmniStage
+from vllm_omni.entrypoints.stage_config import StageConfigFactory
 from vllm_omni.entrypoints.stage_utils import SHUTDOWN_TASK, OmniStageTaskType
 from vllm_omni.entrypoints.stage_utils import maybe_load_from_ipc as _load
 from vllm_omni.entrypoints.utils import (
@@ -115,61 +116,19 @@ class AsyncOmni(OmniBase):
             self.output_handler,
         )
 
-    def _create_default_diffusion_stage_cfg(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Create default diffusion stage configuration."""
-        # TODO: here is different from the Omni class. We should merge the two in the future.
-        cache_backend = kwargs.get("cache_backend", "none")
-        cache_config = self._normalize_cache_config(cache_backend, kwargs.get("cache_config", None))
-
-        devices = "0"
-        if "parallel_config" in kwargs:
-            parallel_config = kwargs["parallel_config"]
-            num_devices = kwargs["parallel_config"].world_size
-            for i in range(1, num_devices):
-                devices += f",{i}"
-        else:
-            ulysses_degree = kwargs.get("ulysses_degree") or 1
-            ring_degree = kwargs.get("ring_degree") or 1
-            sequence_parallel_size = kwargs.get("sequence_parallel_size")
-            tensor_parallel_size = kwargs.get("tensor_parallel_size") or 1
-            if sequence_parallel_size is None:
-                sequence_parallel_size = ulysses_degree * ring_degree
-            num_devices = sequence_parallel_size * tensor_parallel_size
-            for i in range(1, num_devices):
-                devices += f",{i}"
-            parallel_config = DiffusionParallelConfig(
-                pipeline_parallel_size=1,
-                data_parallel_size=1,
-                tensor_parallel_size=tensor_parallel_size,
-                sequence_parallel_size=sequence_parallel_size,
-                ulysses_degree=ulysses_degree,
-                ring_degree=ring_degree,
-                cfg_parallel_size=1,
-            )
-        default_stage_cfg = [
-            {
-                "stage_id": 0,
-                "stage_type": "diffusion",
-                "runtime": {
-                    "process": True,
-                    "devices": devices,
-                    "max_batch_size": 1,
-                },
-                "engine_args": {
-                    "parallel_config": parallel_config,
-                    "vae_use_slicing": kwargs.get("vae_use_slicing", False),
-                    "vae_use_tiling": kwargs.get("vae_use_tiling", False),
-                    "cache_backend": cache_backend,
-                    "cache_config": cache_config,
-                    "enable_cpu_offload": kwargs.get("enable_cpu_offload", False),
-                    "enforce_eager": kwargs.get("enforce_eager", False),
-                },
-                "final_output": True,
-                "final_output_type": "image",
-            }
-        ]
-        default_stage_cfg[0]["engine_args"]["model_stage"] = "diffusion"
-        return default_stage_cfg
+    def _create_default_diffusion_stage_cfg(self, kwargs: dict[str, Any]) -> list[Any]:
+        """Create default diffusion stage configuration using StageConfigFactory.
+        
+        This method uses the structured factory pattern to build a robust,
+        type-safe stage configuration for async mode.
+        
+        Args:
+            kwargs: Dictionary of configuration parameters
+            
+        Returns:
+            List containing a single OmegaConf DictConfig for the diffusion stage
+        """
+        return StageConfigFactory.create_default_diffusion_async(kwargs)
 
     def _process_stage_ready(self, stage: OmniStage, stage_id: int, result: dict[str, Any]) -> None:
         # Store vllm_config received from worker process (may be None for diffusion stages)
