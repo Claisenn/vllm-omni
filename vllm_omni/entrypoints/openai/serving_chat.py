@@ -1307,8 +1307,29 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
             if omni_outputs.request_output is not None and not getattr(omni_outputs.request_output, "finished", False):
                 continue
 
-            # Filter outputs based on requested modalities
             final_output_type = omni_outputs.final_output_type
+
+            # Extract usage info from text output regardless of modality filtering
+            # This ensures usage/billing data is captured even for audio-only requests
+            if final_output_type == "text" and omni_outputs.request_output is not None:
+                final_res = omni_outputs.request_output
+                if final_res.prompt_token_ids is not None:
+                    num_prompt_tokens = len(final_res.prompt_token_ids)
+                    if final_res.encoder_prompt_token_ids is not None:
+                        num_prompt_tokens += len(final_res.encoder_prompt_token_ids)
+                    num_generated_tokens = sum(len(output.token_ids) for output in final_res.outputs)
+                    usage = UsageInfo(
+                        prompt_tokens=num_prompt_tokens,
+                        completion_tokens=num_generated_tokens,
+                        total_tokens=num_prompt_tokens + num_generated_tokens,
+                    )
+                    if self.enable_prompt_tokens_details and final_res.num_cached_tokens:
+                        usage.prompt_tokens_details = PromptTokenUsageInfo(cached_tokens=final_res.num_cached_tokens)
+                    prompt_logprobs = clamp_prompt_logprobs(final_res.prompt_logprobs)
+                    prompt_token_ids = final_res.prompt_token_ids if request.return_token_ids else None
+                    kv_transfer_params = final_res.kv_transfer_params
+
+            # Filter outputs based on requested modalities
             if requested_modalities is not None and final_output_type not in requested_modalities:
                 logger.warning(f"final output type: {final_output_type} is not needed by the request")
                 continue
