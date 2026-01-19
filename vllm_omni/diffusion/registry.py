@@ -79,6 +79,11 @@ _DIFFUSION_MODELS = {
         "pipeline_flux2_klein",
         "Flux2KleinPipeline",
     ),
+    "LTX2Pipeline": (
+        "ltx2",
+        "pipeline_ltx2",
+        "LTX2Pipeline",
+    ),
 }
 
 
@@ -100,10 +105,19 @@ def initialize_model(
     if model_class is not None:
         model = model_class(od_config=od_config)
         # Configure VAE memory optimization settings from config
-        if hasattr(model.vae, "use_slicing"):
-            model.vae.use_slicing = od_config.vae_use_slicing
-        if hasattr(model.vae, "use_tiling"):
-            model.vae.use_tiling = od_config.vae_use_tiling
+        # For pipelines that wrap diffusers pipelines (like LTX2Pipeline), 
+        # VAE is accessed via model.pipe.vae
+        vae = None
+        if hasattr(model, "vae"):
+            vae = model.vae
+        elif hasattr(model, "pipe") and hasattr(model.pipe, "vae"):
+            vae = model.pipe.vae
+            
+        if vae is not None:
+            if hasattr(vae, "use_slicing"):
+                vae.use_slicing = od_config.vae_use_slicing
+            if hasattr(vae, "use_tiling"):
+                vae.use_tiling = od_config.vae_use_tiling
 
         return model
     else:
@@ -127,6 +141,7 @@ _DIFFUSION_POST_PROCESS_FUNCS = {
     "LongCatImageEditPipeline": "get_longcat_image_post_process_func",
     "StableDiffusion3Pipeline": "get_sd3_image_post_process_func",
     "Flux2KleinPipeline": "get_flux2_klein_post_process_func",
+    "LTX2Pipeline": "get_ltx2_post_process_func",
 }
 
 _DIFFUSION_PRE_PROCESS_FUNCS = {
@@ -139,6 +154,7 @@ _DIFFUSION_PRE_PROCESS_FUNCS = {
     "QwenImageLayeredPipeline": "get_qwen_image_layered_pre_process_func",
     "WanPipeline": "get_wan22_pre_process_func",
     "WanImageToVideoPipeline": "get_wan22_i2v_pre_process_func",
+    "LTX2Pipeline": "get_ltx2_pre_process_func",
 }
 
 
