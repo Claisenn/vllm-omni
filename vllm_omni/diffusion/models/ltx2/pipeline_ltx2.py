@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import os
+from typing import Any
 
 import torch
 from diffusers import LTXVideoPipeline
@@ -96,7 +97,7 @@ class LTX2Pipeline(nn.Module):
         frame_num: int | None = None,
         output_type: str | None = "np",
         generator: torch.Generator | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> DiffusionOutput:
         """Generate video from text prompt.
 
