@@ -55,9 +55,8 @@ def get_ltx2_pre_process_func(
 
 
 class LTX2Pipeline(nn.Module):
-    """
-    Wrapper for Lightricks LTX-2 text-to-video pipeline.
-    
+    """Wrapper for Lightricks LTX-2 text-to-video pipeline.
+
     This model uses the diffusers LTXVideoPipeline for efficient video generation.
     Supports text-to-video and image-to-video generation.
     """
@@ -105,9 +104,8 @@ class LTX2Pipeline(nn.Module):
         generator: Optional[torch.Generator] = None,
         **kwargs,
     ) -> DiffusionOutput:
-        """
-        Generate video from text prompt.
-        
+        """Generate video from text prompt.
+
         Args:
             req: OmniDiffusionRequest containing generation parameters
             prompt: Text prompt for video generation
@@ -120,7 +118,7 @@ class LTX2Pipeline(nn.Module):
             output_type: Output format ("np", "pt", or "pil")
             generator: Random generator for reproducibility
             **kwargs: Additional arguments passed to the pipeline
-            
+
         Returns:
             DiffusionOutput containing the generated video frames
         """

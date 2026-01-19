@@ -105,7 +105,7 @@ def initialize_model(
     if model_class is not None:
         model = model_class(od_config=od_config)
         # Configure VAE memory optimization settings from config
-        # For pipelines that wrap diffusers pipelines (like LTX2Pipeline), 
+        # For pipelines that wrap diffusers pipelines (like LTX2Pipeline),
         # VAE is accessed via model.pipe.vae
         vae = None
         if hasattr(model, "vae"):

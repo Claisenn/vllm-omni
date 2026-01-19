@@ -66,7 +66,8 @@ def main():
         if hasattr(first_item, "final_output_type"):
             if first_item.final_output_type != "image":
                 raise ValueError(
-                    f"Unexpected output type '{first_item.final_output_type}', expected 'image' for video generation."
+                    f"Unexpected output type '{first_item.final_output_type}', "
+                    f"expected 'image' for video frames output."
                 )
 
             # Pipeline mode: extract from nested request_output
