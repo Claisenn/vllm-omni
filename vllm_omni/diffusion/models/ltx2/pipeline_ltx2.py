@@ -44,11 +44,6 @@ def get_ltx2_pre_process_func(
             if req.image_path is not None and req.pil_image is None:
                 req.pil_image = PIL.Image.open(req.image_path).convert("RGB")
 
-            # For image-to-video, store the image for later use
-            if req.pil_image is not None:
-                # LTX-2 will handle image resizing internally
-                pass
-
         return requests
 
     return pre_process_func
