@@ -1297,12 +1297,21 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
         prompt_token_ids = None
         kv_transfer_params = None
 
+        # Build requested modalities set for filtering
+        requested_modalities = set(request.modalities) if hasattr(request, "modalities") and request.modalities else None
+
         for omni_outputs in final_outputs:
             choices_data = []
             if omni_outputs.request_output is not None and not getattr(omni_outputs.request_output, "finished", False):
                 continue
 
-            if omni_outputs.final_output_type == "text":
+            # Filter outputs based on requested modalities
+            final_output_type = omni_outputs.final_output_type
+            if requested_modalities is not None and final_output_type not in requested_modalities:
+                logger.warning(f"final output type: {final_output_type} is not needed by the request")
+                continue
+
+            if final_output_type == "text":
                 (
                     choices_data,
                     usage,
@@ -1310,12 +1319,12 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
                     prompt_token_ids,
                     kv_transfer_params,
                 ) = self._create_text_choice(request, omni_outputs, tokenizer, conversation, role)
-            elif omni_outputs.final_output_type == "audio":
+            elif final_output_type == "audio":
                 choices_data = self._create_audio_choice(omni_outputs, role, request, stream=False)
-            elif omni_outputs.final_output_type == "image":
+            elif final_output_type == "image":
                 choices_data = self._create_image_choice(omni_outputs, role, request, stream=False)
             else:
-                logger.warning(f"Unsupported final output type: {omni_outputs.final_output_type}")
+                logger.warning(f"Unsupported final output type: {final_output_type}")
                 continue
             choices.extend(choices_data)
 
