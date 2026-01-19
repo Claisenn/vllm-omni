@@ -64,7 +64,7 @@ See the [example documentation](examples/offline_inference/ltx2/text_to_video.md
 - **num_inference_steps**: Number of denoising steps (default: 40)
   - More steps = higher quality but slower generation
   - Range: 20-50 steps typically
-  
+
 - **guidance_scale**: Classifier-free guidance strength (default: 4.0)
   - Higher values follow prompt more strictly
   - Range: 3.0-5.0 recommended
@@ -92,10 +92,10 @@ vllm_omni/diffusion/models/ltx2/
    - Handles parameter validation
    - Ensures dimension constraints (divisible by 32)
    - Manages frame count convention (8*n+1)
-   
+
 2. **Pre-processing**: `get_ltx2_pre_process_func`
    - Loads and validates image inputs for I2V mode
-   
+
 3. **Post-processing**: `get_ltx2_post_process_func`
    - Converts video tensors to numpy arrays
    - Handles different output formats

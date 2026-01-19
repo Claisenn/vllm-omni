@@ -112,7 +112,7 @@ def initialize_model(
             vae = model.vae
         elif hasattr(model, "pipe") and hasattr(model.pipe, "vae"):
             vae = model.pipe.vae
-            
+
         if vae is not None:
             if hasattr(vae, "use_slicing"):
                 vae.use_slicing = od_config.vae_use_slicing

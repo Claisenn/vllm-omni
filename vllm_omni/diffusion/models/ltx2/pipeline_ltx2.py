@@ -2,7 +2,6 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import os
-from typing import Optional
 
 import torch
 from diffusers import LTXVideoPipeline
@@ -65,22 +64,22 @@ class LTX2Pipeline(nn.Module):
         super().__init__()
         self.od_config = od_config
         self.device = get_local_device()
-        
+
         model = od_config.model
         local_files_only = os.path.exists(model)
-        
+
         # Load the LTX-2 pipeline from diffusers
         dtype = getattr(od_config, "dtype", torch.bfloat16)
-        
+
         self.pipe = LTXVideoPipeline.from_pretrained(
             model,
             torch_dtype=dtype,
             local_files_only=local_files_only,
         ).to(self.device)
-        
+
         # Store configuration
         self.output_type = self.od_config.output_type
-        
+
         # No weights_sources needed since we use the diffusers pipeline directly
         self.weights_sources = []
 
@@ -88,15 +87,15 @@ class LTX2Pipeline(nn.Module):
     def forward(
         self,
         req: OmniDiffusionRequest,
-        prompt: Optional[str] = None,
-        negative_prompt: Optional[str] = None,
-        height: Optional[int] = None,
-        width: Optional[int] = None,
-        num_inference_steps: Optional[int] = None,
+        prompt: str | None = None,
+        negative_prompt: str | None = None,
+        height: int | None = None,
+        width: int | None = None,
+        num_inference_steps: int | None = None,
         guidance_scale: float = 4.0,
-        frame_num: Optional[int] = None,
-        output_type: Optional[str] = "np",
-        generator: Optional[torch.Generator] = None,
+        frame_num: int | None = None,
+        output_type: str | None = "np",
+        generator: torch.Generator | None = None,
         **kwargs,
     ) -> DiffusionOutput:
         """Generate video from text prompt.
@@ -120,36 +119,36 @@ class LTX2Pipeline(nn.Module):
         # Extract parameters from request
         prompt = req.prompt if req.prompt is not None else prompt
         negative_prompt = req.negative_prompt if req.negative_prompt is not None else negative_prompt
-        
+
         if prompt is None:
             raise ValueError("Prompt is required for LTX-2 video generation.")
-        
+
         # Set default values for video generation
         height = req.height or height or 512
         width = req.width or width or 768
         num_frames = req.num_frames if req.num_frames else frame_num or 121
         num_steps = req.num_inference_steps or num_inference_steps or 40
-        
+
         # Ensure dimensions are divisible by 32 (LTX-2 requirement)
         height = (height // 32) * 32
         width = (width // 32) * 32
-        
+
         # Ensure num_frames follows LTX-2 convention (divisible by 8 + 1)
         # e.g., 25, 41, 81, 121, etc.
         if (num_frames - 1) % 8 != 0:
             num_frames = ((num_frames - 1) // 8) * 8 + 1
         num_frames = max(num_frames, 25)  # Minimum 25 frames
-        
+
         # Prepare generator
         if generator is None:
-            seed = req.seed if hasattr(req, 'seed') and req.seed is not None else 42
+            seed = req.seed if hasattr(req, "seed") and req.seed is not None else 42
             generator = torch.Generator(device=self.device).manual_seed(seed)
-        
+
         # Prepare image input for I2V mode if available
         image = None
-        if hasattr(req, 'pil_image') and req.pil_image is not None:
+        if hasattr(req, "pil_image") and req.pil_image is not None:
             image = req.pil_image
-        
+
         # Call the diffusers pipeline
         pipeline_kwargs = {
             "prompt": prompt,
@@ -162,17 +161,17 @@ class LTX2Pipeline(nn.Module):
             "generator": generator,
             "output_type": output_type,
         }
-        
+
         # Add image if provided (for I2V mode)
         if image is not None:
             pipeline_kwargs["image"] = image
-        
+
         # Add any extra kwargs
         pipeline_kwargs.update(kwargs)
-        
+
         # Generate video
         output = self.pipe(**pipeline_kwargs)
-        
+
         # Extract frames from the pipeline output
         if hasattr(output, "frames"):
             frames = output.frames
@@ -181,6 +180,6 @@ class LTX2Pipeline(nn.Module):
         else:
             # Fallback: assume the output itself is the frames
             frames = output
-        
+
         # Return as DiffusionOutput
         return DiffusionOutput(output=frames)
