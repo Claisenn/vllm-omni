@@ -41,6 +41,32 @@ class OmniGPUModelRunner(GPUModelRunner):
         self._omni_num_scheduled_tokens_np: np.ndarray | None = None
         self._omni_last_model_output: object | None = None
 
+    def initialize_metadata_builders(self, kv_cache_config, kernel_block_sizes):
+        """Override to fix scheduler_metadata buffer size for FA3 + CUDA graph.
+
+        The upstream FlashAttentionMetadataBuilder pre-allocates
+        scheduler_metadata with (max_num_seqs + 1) entries, but FA3's
+        get_scheduler_metadata() can return up to
+        (max_num_seqs * max_num_splits + 1) entries, causing a RuntimeError
+        during CUDA graph capture.  After calling the parent implementation
+        we resize any too-small buffers.
+        """
+        super().initialize_metadata_builders(kv_cache_config, kernel_block_sizes)
+
+        for kv_cache_group in self.attn_groups:
+            for attn_group in kv_cache_group:
+                for builder in attn_group.metadata_builders:
+                    sm = getattr(builder, "scheduler_metadata", None)
+                    max_num_splits = getattr(builder, "max_num_splits", 0)
+                    if sm is not None and max_num_splits > 1:
+                        required = self.scheduler_config.max_num_seqs * max_num_splits + 1
+                        if sm.shape[0] < required:
+                            builder.scheduler_metadata = torch.zeros(
+                                required,
+                                dtype=sm.dtype,
+                                device=sm.device,
+                            )
+
     @instrument(span_name="Loading (GPU)")
     def load_model(self, *args, **kwargs) -> None:
         super().load_model(*args, **kwargs)
