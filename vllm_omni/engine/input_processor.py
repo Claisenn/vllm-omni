@@ -90,12 +90,11 @@ class OmniInputProcessor(InputProcessor):
         vllm_config: VllmConfig,
         mm_registry: MultiModalRegistry = MULTIMODAL_REGISTRY,
     ):
-        super().__init__(vllm_config, mm_registry)
+        super().__init__(vllm_config, mm_registry=mm_registry)
         self.input_preprocessor = OmniInputPreprocessor(
-            self.model_config,
-            vllm_config.observability_config,
-            mm_registry,
-            mm_processor_cache=self.mm_processor_cache,
+            vllm_config=vllm_config,
+            renderer=self.renderer,
+            mm_registry=mm_registry,
         )
 
     def process_inputs(
@@ -194,7 +193,7 @@ class OmniInputProcessor(InputProcessor):
             processed_inputs=processed_inputs,
         )
 
-        eos_token_id = self.input_preprocessor.get_eos_token_id()
+        eos_token_id = self.renderer.get_eos_token_id()
 
         encoder_inputs, decoder_inputs = split_enc_dec_inputs(processed_inputs)
         self._validate_model_inputs(encoder_inputs, decoder_inputs)
@@ -281,7 +280,6 @@ class OmniInputProcessor(InputProcessor):
             mm_features=mm_features,
             sampling_params=sampling_params,
             pooling_params=pooling_params,
-            eos_token_id=eos_token_id,
             arrival_time=arrival_time,
             lora_request=lora_request,
             cache_salt=decoder_inputs.get("cache_salt"),

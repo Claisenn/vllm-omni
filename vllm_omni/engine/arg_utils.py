@@ -110,6 +110,7 @@ class OmniEngineArgs(EngineArgs):
 
         # Keep compatibility when async args are constructed from partial payloads.
         limit_mm_per_prompt = getattr(self, "limit_mm_per_prompt", {})
+        language_model_only = getattr(self, "language_model_only", False)
         enable_mm_embeds = getattr(self, "enable_mm_embeds", False)
         interleave_mm_strings = getattr(self, "interleave_mm_strings", False)
         media_io_kwargs = getattr(self, "media_io_kwargs", {})
@@ -163,6 +164,7 @@ class OmniEngineArgs(EngineArgs):
             skip_tokenizer_init=self.skip_tokenizer_init,
             enable_prompt_embeds=self.enable_prompt_embeds,
             served_model_name=self.served_model_name,
+            language_model_only=language_model_only,
             limit_mm_per_prompt=limit_mm_per_prompt,
             enable_mm_embeds=enable_mm_embeds,
             interleave_mm_strings=interleave_mm_strings,
@@ -177,7 +179,6 @@ class OmniEngineArgs(EngineArgs):
             mm_encoder_tp_mode=mm_encoder_tp_mode,
             mm_encoder_attn_backend=mm_encoder_attn_backend,
             pooler_config=self.pooler_config,
-            logits_processor_pattern=self.logits_processor_pattern,
             generation_config=self.generation_config,
             override_generation_config=self.override_generation_config,
             enable_sleep_mode=self.enable_sleep_mode,
@@ -266,6 +267,7 @@ class AsyncOmniEngineArgs(AsyncEngineArgs):
 
         # Keep compatibility when async args are constructed from partial payloads.
         limit_mm_per_prompt = getattr(self, "limit_mm_per_prompt", {})
+        language_model_only = getattr(self, "language_model_only", False)
         enable_mm_embeds = getattr(self, "enable_mm_embeds", False)
         interleave_mm_strings = getattr(self, "interleave_mm_strings", False)
         media_io_kwargs = getattr(self, "media_io_kwargs", {})
@@ -319,6 +321,7 @@ class AsyncOmniEngineArgs(AsyncEngineArgs):
             skip_tokenizer_init=self.skip_tokenizer_init,
             enable_prompt_embeds=self.enable_prompt_embeds,
             served_model_name=self.served_model_name,
+            language_model_only=language_model_only,
             limit_mm_per_prompt=limit_mm_per_prompt,
             enable_mm_embeds=enable_mm_embeds,
             interleave_mm_strings=interleave_mm_strings,
@@ -333,7 +336,6 @@ class AsyncOmniEngineArgs(AsyncEngineArgs):
             mm_encoder_tp_mode=mm_encoder_tp_mode,
             mm_encoder_attn_backend=mm_encoder_attn_backend,
             pooler_config=self.pooler_config,
-            logits_processor_pattern=self.logits_processor_pattern,
             generation_config=self.generation_config,
             override_generation_config=self.override_generation_config,
             enable_sleep_mode=self.enable_sleep_mode,

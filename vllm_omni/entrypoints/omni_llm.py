@@ -173,6 +173,9 @@ class OmniLLM(LLM):
 
         self.supported_tasks = supported_tasks
 
+        # Keep parity with vLLM's LLM initialization fields so inherited
+        # generate/chat preprocessing paths work as expected.
+        self.renderer = self.llm_engine.renderer
         # Load the Input/Output processor plugin if any
         io_processor_plugin = self.llm_engine.model_config.io_processor_plugin
         self.io_processor = get_io_processor(self.llm_engine.vllm_config, io_processor_plugin)
