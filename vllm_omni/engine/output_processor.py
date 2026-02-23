@@ -195,7 +195,7 @@ class OmniRequestState(RequestState):
             if not (
                 finished
                 or self.sent_tokens_offset == 0
-                or len(self.detokenizer.output_token_ids) - self.sent_tokens_offset >= self.stream_interval
+                or self.detokenizer.num_output_tokens() - self.sent_tokens_offset >= self.stream_interval
             ):
                 return None
 
@@ -203,7 +203,7 @@ class OmniRequestState(RequestState):
                 # Send tokens from the offset in DELTA mode, otherwise all
                 # tokens are sent.
                 new_token_ids = self.detokenizer.output_token_ids[self.sent_tokens_offset :]
-                self.sent_tokens_offset = len(self.detokenizer.output_token_ids)
+                self.sent_tokens_offset = self.detokenizer.num_output_tokens()
 
         external_req_id = self.external_req_id
         output = self._new_completion_output(new_token_ids, finish_reason, stop_reason, routed_experts)

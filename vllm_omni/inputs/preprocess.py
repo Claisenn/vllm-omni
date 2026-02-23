@@ -92,6 +92,8 @@ class OmniInputPreprocessor(InputPreprocessor):
             inputs["prompt_embeds"] = prompt_embeds
         if additional_information is not None:
             inputs["additional_information"] = additional_information
+        if prompt_text := parsed_content.get("prompt"):
+            inputs["prompt"] = prompt_text
         if cache_salt := parsed_content.get("cache_salt"):
             inputs["cache_salt"] = cache_salt
 
@@ -132,13 +134,13 @@ class OmniInputPreprocessor(InputPreprocessor):
 
         * [`SingletonInputs`][vllm.inputs.data.SingletonInputs] instance
         """
+        if "prompt_embeds" in prompt:
+            return self._process_embeds(prompt)  # type: ignore[arg-type]
+
         if "prompt_token_ids" in prompt:
             return self._process_tokens(
                 prompt,  # type: ignore[arg-type]
             )
-
-        if "prompt_embeds" in prompt:
-            return self._process_embeds(prompt)  # type: ignore[arg-type]
 
         if "prompt" in prompt:
             return self._process_text(

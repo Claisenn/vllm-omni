@@ -10,25 +10,13 @@ from vllm.inputs.parse import split_enc_dec_inputs
 from vllm.logger import init_logger
 from vllm.multimodal import MULTIMODAL_REGISTRY, MultiModalRegistry
 from vllm.multimodal.inputs import MultiModalFeatureSpec
-
-try:
-    from vllm.multimodal.processing import set_request_id
-except ImportError:  # vllm without set_request_id (older releases)
-    from contextlib import contextmanager
-
-    @contextmanager
-    def set_request_id(_request_id: str):
-        yield
-
-
 from vllm.multimodal.utils import argsort_mm_positions
 from vllm.pooling_params import PoolingParams
 from vllm.renderers import BaseRenderer
-from vllm.renderers.inputs import DictPrompt, TokPrompt
 from vllm.sampling_params import SamplingParams
 from vllm.tasks import SupportedTask
 from vllm.utils import length_from_prompt_token_ids_or_embeds
-from vllm.utils.torch_utils import set_default_torch_num_threads
+from vllm.utils.jsontree import json_iter_leaves
 from vllm.v1.engine.input_processor import InputProcessor
 
 from vllm_omni.engine import (
@@ -131,7 +119,7 @@ class OmniInputProcessor(InputProcessor):
     def process_inputs(
         self,
         request_id: str,
-        prompt: PromptType | DictPrompt | TokPrompt,
+        prompt: PromptType | ProcessorInputs,
         params: SamplingParams | PoolingParams,
         arrival_time: float | None = None,
         lora_request: LoRARequest | None = None,
@@ -192,11 +180,10 @@ class OmniInputProcessor(InputProcessor):
             if arrival_time is None:
                 arrival_time = time.time()
 
-            with set_request_id(request_id), set_default_torch_num_threads():
-                processed_inputs = self.input_preprocessor.preprocess(
-                    prompt,
-                    tokenization_kwargs=tokenization_kwargs,
-                )
+            processed_inputs = self.input_preprocessor.preprocess(
+                prompt,
+                tokenization_kwargs=tokenization_kwargs,
+            )
 
         self._platform_validate_request(processed_inputs, params)
 
@@ -235,6 +222,13 @@ class OmniInputProcessor(InputProcessor):
             decoder_mm_inputs = decoder_inputs["mm_kwargs"]
             decoder_mm_positions = decoder_inputs["mm_placeholders"]
             decoder_mm_hashes = decoder_inputs["mm_hashes"]
+
+            if not all(isinstance(leaf, str) for leaf in json_iter_leaves(decoder_mm_hashes)):
+                raise ValueError(
+                    f"mm_hashes must contain only strings, got: {decoder_mm_hashes}. "
+                    "This is likely due to an incorrect custom implementation of "
+                    "MultiModalProcessor.apply method."
+                )
 
             # Merge and flatten multimodal placeholders, hashes and inputs
             # from dictionaries to lists, and sort them by each item's position

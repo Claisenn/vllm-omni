@@ -128,6 +128,8 @@ async def async_request_openai_chat_omni_completions(
 
                     messages = handler.add_chunk(chunk_bytes)
                     for message in messages:
+                        if type(message) is bytes:
+                            message = message.decode("utf-8")
                         # NOTE: SSE comments (often used as pings) start with
                         # a colon. These are not JSON data payload and should
                         # be skipped.
@@ -486,6 +488,7 @@ async def benchmark(
             "errors": [output.error for output in outputs],
             "max_output_tokens_per_s": metrics.max_output_tokens_per_s,
             "max_concurrent_requests": metrics.max_concurrent_requests,
+            "rtfx": metrics.rtfx,
         }
     else:
         result = {
