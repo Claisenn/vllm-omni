@@ -24,6 +24,7 @@ from vllm_ascend.utils import enable_sp, lmhead_tp_enable
 from vllm_ascend.worker.model_runner_v1 import NPUModelRunner
 
 from vllm_omni.model_executor.models.output_templates import OmniOutput
+from vllm_omni.worker.gpu_model_runner import OmniGPUModelRunner
 
 if TYPE_CHECKING:
     from vllm.v1.core.sched.output import SchedulerOutput
@@ -194,54 +195,16 @@ class OmniNPUModelRunner(NPUModelRunner):
             )
             self.requests[req_id] = req_state
 
-            #  -------------------------------------- Omni-new -------------------------------------------------
-            # If prompt embeddings are provided, decode and attach to inter_data
-            try:
-                if getattr(new_req_data, "prompt_embeds", None) is not None:
-                    payload = new_req_data.prompt_embeds
-                    dtype = getattr(np, payload.dtype)
-                    arr = np.frombuffer(payload.data, dtype=dtype)
-                    arr = arr.reshape(payload.shape)
-                    pe_cpu = torch.from_numpy(arr)
-                    # Store temporarily on CPU; later moved to device in builder
-                    setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
-                    # Also replace payload with Tensor for user visibility in
-                    # scheduler_output
-                    try:
-                        new_req_data.prompt_embeds = pe_cpu  # type: ignore[assignment]
-                    except Exception:
-                        pass
-            except Exception as e:
-                logger.error(f"Error decoding prompt embeds: {e}")
-            # Decode additional_information payloads (dictionary)
-            try:
-                if getattr(new_req_data, "additional_information", None) is not None:
-                    payload_info = new_req_data.additional_information
-                    info_dict = {}
-                    if isinstance(payload_info, dict):
-                        info_dict = payload_info
-                    else:
-                        from vllm_omni.engine import AdditionalInformationPayload
+            # Decode and store omni-specific payloads on CPU.
+            pe_cpu = OmniGPUModelRunner._resolve_prompt_embeds_cpu(new_req_data.prompt_embeds)
+            if pe_cpu is not None:
+                setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
 
-                        if isinstance(payload_info, AdditionalInformationPayload):
-                            for k, entry in payload_info.entries.items():
-                                if entry.tensor_data is not None:
-                                    dt = np.dtype(getattr(entry, "tensor_dtype", "float32"))
-                                    arr = np.frombuffer(entry.tensor_data, dtype=dt)
-                                    arr = arr.reshape(entry.tensor_shape)
-                                    info_dict[k] = torch.from_numpy(arr.copy())
-                                else:
-                                    info_dict[k] = entry.list_data
-                    if info_dict:
-                        setattr(
-                            self.requests[req_id],
-                            "additional_information_cpu",
-                            info_dict,
-                        )
-            except Exception as e:
-                logger.error(f"Error decoding additional information: {e}")
-                pass
-            #  -------------------------------------- Omni-new -------------------------------------------------
+            info_dict = OmniGPUModelRunner._resolve_additional_information(
+                getattr(new_req_data, "additional_information", None)
+            )
+            if info_dict:
+                setattr(self.requests[req_id], "additional_information_cpu", info_dict)
 
             if sampling_params and sampling_params.prompt_logprobs is not None:
                 self.num_prompt_logprobs[req_id] = (
@@ -627,59 +590,24 @@ class OmniNPUModelRunner(NPUModelRunner):
                 self.eplb_updator.forward_end()
             return hidden_states, hidden_states
 
-    def _decode_and_store_request_payloads(self, scheduler_output: "SchedulerOutput") -> None:
-        """Decode per-request prompt_embeds and additional_information for newly
-        scheduled requests and store them to CPU in the request state.
-        This version avoids hard dependency on payload classes by duck-typing."""
-        try:
-            new_reqs = getattr(scheduler_output, "scheduled_new_reqs", [])
-            if not new_reqs:
-                return
-            for nr in new_reqs:
-                req_id = getattr(nr, "req_id", None) or getattr(nr, "request_id", None)
-                if req_id is None:
-                    continue
-                # prompt_embeds
-                payload_pe = getattr(nr, "prompt_embeds", None)
-                pe_cpu = None
-                if payload_pe is not None:
-                    if isinstance(payload_pe, torch.Tensor):
-                        pe_cpu = payload_pe.detach().to("cpu").contiguous()
-                    else:
-                        # Try duck-typing a payload with data/shape/dtype
-                        data = getattr(payload_pe, "data", None)
-                        shape = getattr(payload_pe, "shape", None)
-                        if data is not None and shape is not None:
-                            dt = np.dtype(getattr(payload_pe, "dtype", "float32"))
-                            arr = np.frombuffer(data, dtype=dt)
-                            arr = arr.reshape(shape)
-                            pe_cpu = torch.from_numpy(arr.copy())
-                if pe_cpu is not None and req_id in self.requests:
-                    setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
-                # additional_information
-                payload_info = getattr(nr, "additional_information", None)
-                if payload_info is not None:
-                    info_dict = {}
-                    if isinstance(payload_info, dict):
-                        info_dict = payload_info
-                    else:
-                        # Try duck-typing a payload with entries, each entry may have
-                        # tensor_data/tensor_dtype/tensor_shape or list_data
-                        entries = getattr(payload_info, "entries", None)
-                        if isinstance(entries, dict):
-                            for k, entry in entries.items():
-                                tensor_data = getattr(entry, "tensor_data", None)
-                                if tensor_data is not None:
-                                    dt = np.dtype(getattr(entry, "tensor_dtype", "float32"))
-                                    arr = np.frombuffer(tensor_data, dtype=dt)
-                                    arr = arr.reshape(getattr(entry, "tensor_shape", ()))
-                                    info_dict[k] = torch.from_numpy(arr.copy())
-                                else:
-                                    info_dict[k] = getattr(entry, "list_data", None)
-                    if info_dict and req_id in self.requests:
-                        setattr(self.requests[req_id], "additional_information_cpu", info_dict)
-        except Exception as e:
-            logger.error(f"Error decoding prompt_embeds / additional_information: {e}")
+    def _decode_and_store_request_payloads(
+        self,
+        scheduler_output: "SchedulerOutput",
+    ) -> None:
+        """Decode per-request prompt_embeds and additional_information for
+        newly scheduled requests and store them on CPU in the request state.
+        """
+        new_reqs = getattr(scheduler_output, "scheduled_new_reqs", [])
+        for nr in new_reqs:
+            req_id = getattr(nr, "req_id", None) or getattr(nr, "request_id", None)
+            if req_id is None or req_id not in self.requests:
+                continue
+            pe_cpu = OmniGPUModelRunner._resolve_prompt_embeds_cpu(getattr(nr, "prompt_embeds", None))
+            if pe_cpu is not None:
+                setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
+            info_dict = OmniGPUModelRunner._resolve_additional_information(getattr(nr, "additional_information", None))
+            if info_dict:
+                setattr(self.requests[req_id], "additional_information_cpu", info_dict)
 
     def _gather_runtime_additional_information(self) -> list[dict]:
         """Gather per-request additional_information stored in request state in batch order."""

@@ -264,6 +264,9 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
 
         # Run the model.
         # Use persistent buffers for CUDA graphs.
+        # When spec decode is enabled, delay clearing connector metadata
+        # until after draft model runs in sample_tokens.
+        clear_kv_metadata = self.speculative_config is None
         with (
             set_forward_context(
                 attn_metadata,
@@ -276,7 +279,9 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
                 slot_mapping=slot_mappings,  # OMNI: required for KV cache operations
             ),
             record_function_or_nullcontext("Forward"),
-            self.maybe_get_kv_connector_output(scheduler_output) as kv_connector_output,
+            self.maybe_get_kv_connector_output(
+                scheduler_output, clear_metadata=clear_kv_metadata
+            ) as kv_connector_output,
         ):
             outputs = self._run_generation_model(
                 input_ids=input_ids,
@@ -344,6 +349,10 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
             slot_mappings,  # OMNI: unpack slot_mappings for upstream v1 API compatibility
         ) = self.execute_model_state
         self.execute_model_state = None
+
+        # Clear KV connector metadata after draft model runs (if spec decode).
+        if self.speculative_config is not None:
+            self.clear_kv_connector_metadata()
 
         pooler_output: list[object] = []
         if isinstance(multimodal_outputs, torch.Tensor):
@@ -466,6 +475,7 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
         remove_lora: bool = True,
         is_graph_capturing: bool = False,
         num_active_loras: int = 0,
+        activate_lora: bool | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Run a dummy forward pass to warm up/profile run or capture the
@@ -489,7 +499,11 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
                 (1 token) and prefill (multiple tokens) requests.
             remove_lora: If False, dummy LoRAs are not destroyed after the run
             num_active_loras: Number of active LoRAs to capture for.
+            activate_lora: Backward-compatible override for LoRA activation.
         """
+        if activate_lora is None:
+            activate_lora = num_active_loras > 0
+
         mm_config = self.vllm_config.model_config.multimodal_config
         if mm_config and mm_config.mm_encoder_only:
             # The current dummy run only covers LM execution, so we can skip it.
@@ -566,7 +580,7 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
                 # `force_has_lora` is used for cudagraph capture; because LoRA is
                 # activated later in the context manager, but we need to know the
                 # LoRA state when determining the batch descriptor for capture
-                force_has_lora=num_active_loras > 0,
+                force_has_lora=activate_lora,
                 # Capture shape specialization for specific active LoRA counts.
                 force_num_active_loras=num_active_loras,
             )
@@ -639,8 +653,8 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
             self.lora_config,
             num_scheduled_tokens,
             num_sampled_tokens,
+            activate_lora,
             remove_lora,
-            num_active_loras,
         ):
             # Make sure padding doesn't exceed max_num_tokens
             assert num_tokens_padded <= self.max_num_tokens
@@ -727,7 +741,7 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
                 # lora cases when cudagraph_specialize_lora is enabled. This is a
                 # short term mitigation for issue mentioned in
                 # https://github.com/vllm-project/vllm/issues/28334
-                if self.compilation_config.cudagraph_specialize_lora and num_active_loras > 0:
+                if self.compilation_config.cudagraph_specialize_lora and activate_lora:
                     use_cudagraphs = False
 
                 self.drafter.dummy_run(

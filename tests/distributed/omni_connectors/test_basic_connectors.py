@@ -64,14 +64,13 @@ def shm_connector():
 
 
 def test_put_get_inline(shm_connector):
-    """Test inline transfer for small data."""
+    """Test transfer for small data (currently always uses SHM)."""
     data = {"small": "data"}
-    # Ensure data is smaller than threshold (100 bytes)
 
     success, size, metadata = shm_connector.put("stage_0", "stage_1", "req_1", data)
     assert success is True
-    assert "inline_bytes" in metadata
-    assert "shm" not in metadata
+    assert "shm" in metadata
+    assert "size" in metadata
 
     # Retrieve
     retrieved_data, ret_size = shm_connector.get("stage_0", "stage_1", "req_1", metadata)

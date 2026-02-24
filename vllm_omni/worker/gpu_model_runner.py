@@ -240,52 +240,14 @@ class OmniGPUModelRunner(GPUModelRunner):
             )
             self.requests[req_id] = req_state
 
-            # If prompt embeddings are provided, decode and attach to inter_data
-            try:
-                if getattr(new_req_data, "prompt_embeds", None) is not None:
-                    payload = new_req_data.prompt_embeds
-                    dtype = getattr(np, payload.dtype)
-                    arr = np.frombuffer(payload.data, dtype=dtype)
-                    arr = arr.reshape(payload.shape)
-                    pe_cpu = torch.from_numpy(arr)
-                    # Store temporarily on CPU; later moved to device in builder
-                    setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
-                    # Also replace payload with Tensor for user visibility in
-                    # scheduler_output
-                    try:
-                        new_req_data.prompt_embeds = pe_cpu  # type: ignore[assignment]
-                    except Exception:
-                        pass
-            except Exception as e:
-                logger.error(f"Error decoding prompt embeds: {e}")
-            # Decode additional_information payloads (dictionary)
-            try:
-                if getattr(new_req_data, "additional_information", None) is not None:
-                    payload_info = new_req_data.additional_information
-                    info_dict = {}
-                    if isinstance(payload_info, dict):
-                        info_dict = payload_info
-                    else:
-                        from vllm_omni.engine import AdditionalInformationPayload
+            # Decode and store omni-specific payloads on CPU.
+            pe_cpu = self._resolve_prompt_embeds_cpu(new_req_data.prompt_embeds)
+            if pe_cpu is not None:
+                setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
 
-                        if isinstance(payload_info, AdditionalInformationPayload):
-                            for k, entry in payload_info.entries.items():
-                                if entry.tensor_data is not None:
-                                    dt = np.dtype(getattr(entry, "tensor_dtype", "float32"))
-                                    arr = np.frombuffer(entry.tensor_data, dtype=dt)
-                                    arr = arr.reshape(entry.tensor_shape)
-                                    info_dict[k] = torch.from_numpy(arr.copy())
-                                else:
-                                    info_dict[k] = entry.list_data
-                    if info_dict:
-                        setattr(
-                            self.requests[req_id],
-                            "additional_information_cpu",
-                            info_dict,
-                        )
-            except Exception as e:
-                logger.error(f"Error decoding additional information: {e}")
-                pass
+            info_dict = self._resolve_additional_information(getattr(new_req_data, "additional_information", None))
+            if info_dict:
+                setattr(self.requests[req_id], "additional_information_cpu", info_dict)
 
             if sampling_params and sampling_params.prompt_logprobs is not None:
                 self.num_prompt_logprobs[req_id] = (
@@ -776,59 +738,92 @@ class OmniGPUModelRunner(GPUModelRunner):
         logit_indices_device = torch.from_numpy(logit_indices).to(self.device, non_blocking=True)
         return hidden_states, hidden_states[logit_indices_device]
 
-    def _decode_and_store_request_payloads(self, scheduler_output: "SchedulerOutput") -> None:
-        """Decode per-request prompt_embeds and additional_information for newly
-        scheduled requests and store them to CPU in the request state.
-        This version avoids hard dependency on payload classes by duck-typing."""
+    # ------------------------------------------------------------------
+    # Payload decoding helpers (torch.Tensor passthrough + legacy
+    # PromptEmbedsPayload / AdditionalInformationPayload support)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_prompt_embeds_cpu(
+        pe: "torch.Tensor | object | None",
+    ) -> torch.Tensor | None:
+        """Convert *prompt_embeds* to a contiguous CPU tensor.
+
+        Accepts:
+        - ``torch.Tensor`` – moved to CPU as-is (the normal path after
+          upstream added ``prompt_embeds`` to ``EngineCoreRequest``).
+        - Legacy ``PromptEmbedsPayload`` (or any duck-typed object with
+          ``.data``, ``.shape``, ``.dtype``) – decoded via numpy.
+        - ``None`` – returns ``None``.
+        """
+        if pe is None:
+            return None
         try:
-            new_reqs = getattr(scheduler_output, "scheduled_new_reqs", [])
-            if not new_reqs:
-                return
-            for nr in new_reqs:
-                req_id = getattr(nr, "req_id", None) or getattr(nr, "request_id", None)
-                if req_id is None:
-                    continue
-                # prompt_embeds
-                payload_pe = getattr(nr, "prompt_embeds", None)
-                pe_cpu = None
-                if payload_pe is not None:
-                    if isinstance(payload_pe, torch.Tensor):
-                        pe_cpu = payload_pe.detach().to("cpu").contiguous()
-                    else:
-                        # Try duck-typing a payload with data/shape/dtype
-                        data = getattr(payload_pe, "data", None)
-                        shape = getattr(payload_pe, "shape", None)
-                        if data is not None and shape is not None:
-                            dt = np.dtype(getattr(payload_pe, "dtype", "float32"))
-                            arr = np.frombuffer(data, dtype=dt)
-                            arr = arr.reshape(shape)
-                            pe_cpu = torch.from_numpy(arr.copy())
-                if pe_cpu is not None and req_id in self.requests:
-                    setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
-                # additional_information
-                payload_info = getattr(nr, "additional_information", None)
-                if payload_info is not None:
-                    info_dict = {}
-                    if isinstance(payload_info, dict):
-                        info_dict = payload_info
-                    else:
-                        # Try duck-typing a payload with entries, each entry may have
-                        # tensor_data/tensor_dtype/tensor_shape or list_data
-                        entries = getattr(payload_info, "entries", None)
-                        if isinstance(entries, dict):
-                            for k, entry in entries.items():
-                                tensor_data = getattr(entry, "tensor_data", None)
-                                if tensor_data is not None:
-                                    dt = np.dtype(getattr(entry, "tensor_dtype", "float32"))
-                                    arr = np.frombuffer(tensor_data, dtype=dt)
-                                    arr = arr.reshape(getattr(entry, "tensor_shape", ()))
-                                    info_dict[k] = torch.from_numpy(arr.copy())
-                                else:
-                                    info_dict[k] = getattr(entry, "list_data", None)
-                    if info_dict and req_id in self.requests:
-                        setattr(self.requests[req_id], "additional_information_cpu", info_dict)
-        except Exception as e:
-            logger.error(f"Error decoding prompt_embeds / additional_information: {e}")
+            if isinstance(pe, torch.Tensor):
+                return pe.detach().cpu().contiguous()
+            data = getattr(pe, "data", None)
+            shape = getattr(pe, "shape", None)
+            if data is not None and shape is not None:
+                dt = np.dtype(getattr(pe, "dtype", "float32"))
+                arr = np.frombuffer(data, dtype=dt).reshape(shape)
+                return torch.from_numpy(arr.copy())
+        except Exception:
+            logger.exception("Failed to decode prompt_embeds payload")
+        return None
+
+    @staticmethod
+    def _resolve_additional_information(
+        payload: "dict | object | None",
+    ) -> dict[str, object]:
+        """Convert an *additional_information* payload to a plain dict.
+
+        Accepts:
+        - ``dict`` – returned as-is.
+        - ``AdditionalInformationPayload`` (or duck-typed with
+          ``.entries``) – decoded entry-by-entry.
+        - ``None`` – returns ``{}``.
+        """
+        if payload is None:
+            return {}
+        if isinstance(payload, dict):
+            return payload
+        try:
+            entries = getattr(payload, "entries", None)
+            if not isinstance(entries, dict):
+                return {}
+            info: dict[str, object] = {}
+            for k, entry in entries.items():
+                tensor_data = getattr(entry, "tensor_data", None)
+                if tensor_data is not None:
+                    dt = np.dtype(getattr(entry, "tensor_dtype", "float32"))
+                    arr = np.frombuffer(tensor_data, dtype=dt)
+                    arr = arr.reshape(getattr(entry, "tensor_shape", ()))
+                    info[k] = torch.from_numpy(arr.copy())
+                else:
+                    info[k] = getattr(entry, "list_data", None)
+            return info
+        except Exception:
+            logger.exception("Failed to decode additional_information payload")
+        return {}
+
+    def _decode_and_store_request_payloads(
+        self,
+        scheduler_output: "SchedulerOutput",
+    ) -> None:
+        """Decode per-request prompt_embeds and additional_information for
+        newly scheduled requests and store them on CPU in the request state.
+        """
+        new_reqs = getattr(scheduler_output, "scheduled_new_reqs", [])
+        for nr in new_reqs:
+            req_id = getattr(nr, "req_id", None) or getattr(nr, "request_id", None)
+            if req_id is None or req_id not in self.requests:
+                continue
+            pe_cpu = self._resolve_prompt_embeds_cpu(getattr(nr, "prompt_embeds", None))
+            if pe_cpu is not None:
+                setattr(self.requests[req_id], "prompt_embeds_cpu", pe_cpu)
+            info_dict = self._resolve_additional_information(getattr(nr, "additional_information", None))
+            if info_dict:
+                setattr(self.requests[req_id], "additional_information_cpu", info_dict)
 
     def _gather_runtime_additional_information(self) -> list[dict]:
         """Gather per-request additional_information stored in request state in batch order."""
