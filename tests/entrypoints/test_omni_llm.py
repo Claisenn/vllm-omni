@@ -1047,9 +1047,22 @@ def test_overridden_method_signatures_compatible(up_mod: str, up_cls: str, omni_
         except (ValueError, TypeError):
             continue
 
-        base_params = set(base_sig.parameters.keys())
+        omni_has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in omni_sig.parameters.values())
+
+        base_params = base_sig.parameters
         omni_params = set(omni_sig.parameters.keys())
-        missing = base_params - omni_params
+
+        missing = []
+        for pname, param in base_params.items():
+            if pname in omni_params:
+                continue
+            if omni_has_var_keyword and param.kind in (
+                inspect.Parameter.KEYWORD_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            ):
+                continue
+            missing.append(pname)
+
         if missing:
             failures.append(f"{omni_cls}.{name}() missing params {sorted(missing)}; base={base_sig}, omni={omni_sig}")
 
