@@ -658,6 +658,16 @@ class AsyncOmni(OmniBase):
             stage.submit(abort_task)
         return None
 
+    async def get_supported_tasks(self) -> set[str]:
+        tasks: set[str] = set()
+        has_comprehension = any(stage.is_comprehension for stage in self.stage_list)
+        if has_comprehension:
+            tasks.add("generate")
+        for stage in self.stage_list:
+            if getattr(stage, "final_output_type", None) == "audio":
+                tasks.add("speech")
+        return tasks if tasks else {"generate"}
+
     async def get_vllm_config(self) -> VllmConfig:
         for stage in self.stage_list:
             if stage.is_comprehension:
