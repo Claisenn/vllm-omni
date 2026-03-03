@@ -22,7 +22,7 @@ RUN uv pip install --system --upgrade --force-reinstall --prerelease=allow vllm 
 
 RUN uv pip install --system --no-cache-dir ".[dev]"
 RUN ln -sf /usr/bin/python3 /usr/bin/python
-RUN FLASHINFER_VERSION=$(python -c "import flashinfer; print(flashinfer.__version__)") && \
+RUN FLASHINFER_VERSION=$(python -c "from importlib.metadata import version; print(version('flashinfer'))") && \
     uv pip install --system --upgrade "flashinfer-cubin==${FLASHINFER_VERSION}"
 
 ENTRYPOINT []
