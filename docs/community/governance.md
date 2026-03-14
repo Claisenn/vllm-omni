@@ -38,7 +38,7 @@ Committers have write access and merge rights. They typically have deep expertis
 - [@Isotr0py](https://github.com/Isotr0py): Diffusion and Quantization
 - [@linyueqian](https://github.com/linyueqian)
 - [@princepride](https://github.com/princepride)
-- [@SamitHuang](https://github.com/SamitHuang)
+- [@SamitHuang](https://github.com/SamitHuang): RL and Diffusion
 - [@tzhouam](https://github.com/tzhouam): Engine and New Model Support
 - [@wtomin](https://github.com/wtomin)
 - [@ZJY0516](https://github.com/ZJY0516)
