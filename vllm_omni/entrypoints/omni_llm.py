@@ -217,10 +217,10 @@ class OmniLLM(LLM):
         Note: Stage management is now handled by Omni class.
         This method closes the LLM engine but not stages.
         """
-        # Close the LLM engine if it exists
         if hasattr(self, "llm_engine") and self.llm_engine is not None:
-            if hasattr(self.llm_engine, "shutdown"):
-                self.llm_engine.shutdown()
+            engine_core = getattr(self.llm_engine, "engine_core", None)
+            if engine_core is not None and hasattr(engine_core, "shutdown"):
+                engine_core.shutdown()
 
     def __del__(self) -> None:  # best-effort
         try:
