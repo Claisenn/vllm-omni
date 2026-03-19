@@ -155,8 +155,7 @@ class Qwen3Omni_VisionTransformer(_Qwen3Omni_VisionTransformer):
             cu_seqlens = F.pad(cu_seqlens, (1, 0), value=0)
         except RuntimeError:
             logger.warning(
-                "torch.repeat_interleave not executable, "
-                "switching to vectorized searchsorted implementation."
+                "torch.repeat_interleave not executable, switching to vectorized searchsorted implementation."
             )
             repeat_counts = grid_thw_tensor[:, 0]
             values = grid_thw_tensor[:, 1] * grid_thw_tensor[:, 2]
@@ -179,9 +178,9 @@ class Qwen3Omni_VisionTransformer(_Qwen3Omni_VisionTransformer):
         max_seqlen = self.compute_attn_mask_seqlen(cu_seqlens)
 
         grid_thw_np = grid_thw_tensor.cpu().numpy().astype(np.int32)
-        cu_seqlens_np = np.repeat(
-            grid_thw_np[:, 1] * grid_thw_np[:, 2], grid_thw_np[:, 0]
-        ).cumsum(axis=0, dtype=np.int32)
+        cu_seqlens_np = np.repeat(grid_thw_np[:, 1] * grid_thw_np[:, 2], grid_thw_np[:, 0]).cumsum(
+            axis=0, dtype=np.int32
+        )
         cu_seqlens_np = np.concatenate([np.zeros(1, dtype=np.int32), cu_seqlens_np])
         sequence_lengths = MMEncoderAttention.maybe_compute_seq_lens(
             self.attn_backend,
