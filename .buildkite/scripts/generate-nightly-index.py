@@ -85,9 +85,7 @@ def generate_package_index(
     href_tags = []
     metadata = []
     for file in sorted(wheel_files, key=lambda x: x.filename):
-        relative_path = (
-            wheel_base_dir.relative_to(index_base_dir, walk_up=True) / file.filename
-        )
+        relative_path = wheel_base_dir.relative_to(index_base_dir, walk_up=True) / file.filename
         # handle '+' in URL; avoid double-encoding '/' and '%2B' (AWS S3 behavior)
         file_path_quoted = quote(relative_path.as_posix(), safe=":%/")
         href_tags.append(f'    <a href="{file_path_quoted}">{file.filename}</a><br/>')
@@ -136,9 +134,7 @@ def generate_index(
     for package, files in packages.items():
         package_dir = index_base_dir / package
         package_dir.mkdir(parents=True, exist_ok=True)
-        index_str, metadata_str = generate_package_index(
-            files, wheel_base_dir, package_dir, comment
-        )
+        index_str, metadata_str = generate_package_index(files, wheel_base_dir, package_dir, comment)
         with open(package_dir / "index.html", "w") as f:
             f.write(index_str)
         with open(package_dir / "metadata.json", "w") as f:
@@ -151,19 +147,12 @@ def generate_index(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Generate PEP 503 wheel index from S3 object listing."
-    )
-    parser.add_argument("--version", type=str, required=True,
-                        help="Version string (e.g., commit hash)")
-    parser.add_argument("--current-objects", type=str, required=True,
-                        help="Path to JSON from S3 list-objects-v2")
-    parser.add_argument("--output-dir", type=str, required=True,
-                        help="Directory to write index files")
-    parser.add_argument("--wheel-dir", type=str, default=None,
-                        help="Wheel directory (defaults to --version)")
-    parser.add_argument("--comment", type=str, default="",
-                        help="Comment for generated HTML")
+    parser = argparse.ArgumentParser(description="Generate PEP 503 wheel index from S3 object listing.")
+    parser.add_argument("--version", type=str, required=True, help="Version string (e.g., commit hash)")
+    parser.add_argument("--current-objects", type=str, required=True, help="Path to JSON from S3 list-objects-v2")
+    parser.add_argument("--output-dir", type=str, required=True, help="Directory to write index files")
+    parser.add_argument("--wheel-dir", type=str, default=None, help="Wheel directory (defaults to --version)")
+    parser.add_argument("--comment", type=str, default="", help="Comment for generated HTML")
 
     args = parser.parse_args()
 
@@ -178,9 +167,7 @@ if __name__ == "__main__":
         current_objects: dict[str, list[dict[str, Any]]] = json.load(f)
 
     wheel_files = [
-        item["Key"].split("/")[-1]
-        for item in current_objects.get("Contents", [])
-        if item["Key"].endswith(".whl")
+        item["Key"].split("/")[-1] for item in current_objects.get("Contents", []) if item["Key"].endswith(".whl")
     ]
 
     print(f"Found {len(wheel_files)} wheel files for version {version}: {wheel_files}")
