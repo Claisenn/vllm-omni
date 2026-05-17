@@ -29,7 +29,7 @@ mkdir -p "$DIST_DIR"
 
 echo "Downloading wheels from S3:"
 aws s3 ls "$S3_COMMIT_PREFIX"
-aws s3 cp --recursive --exclude "*" --include "vllm_omni-${RELEASE_VERSION}*.whl" --exclude "*dev*" --exclude "*rc[0-9]*" "$S3_COMMIT_PREFIX" "$DIST_DIR"
+aws s3 cp --recursive --exclude "*" --include "vllm_omni-${RELEASE_VERSION}*.whl" --exclude "*dev*" "$S3_COMMIT_PREFIX" "$DIST_DIR"
 ls -la "$DIST_DIR"
 
 PYPI_WHEEL_FILES=$(find "$DIST_DIR" -name "vllm_omni-${RELEASE_VERSION}*.whl" -not -name "*+*")
