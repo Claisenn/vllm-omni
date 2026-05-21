@@ -29,7 +29,6 @@ from vllm_omni.diffusion.models.helios.scheduling_helios import HeliosScheduler
 from vllm_omni.diffusion.models.progress_bar import ProgressBarMixin
 from vllm_omni.diffusion.profiler.diffusion_pipeline_profiler import DiffusionPipelineProfilerMixin
 from vllm_omni.diffusion.request import OmniDiffusionRequest
-from vllm_omni.platforms import current_omni_platform
 
 if TYPE_CHECKING:
     from vllm.model_executor.layers.quantization.base_config import (
@@ -504,7 +503,12 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
 
         # Prepare frame indices
         if keep_first_frame:
-            indices = torch.arange(0, sum([1, *history_sizes, num_latent_frames_per_chunk]))
+            indices = torch.arange(
+                0,
+                sum([1, *history_sizes, num_latent_frames_per_chunk]),
+                device=device,
+                dtype=torch.float32,
+            )
             (
                 indices_prefix,
                 indices_latents_history_long,
@@ -514,7 +518,12 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
             ) = indices.split([1, *history_sizes, num_latent_frames_per_chunk], dim=0)
             indices_latents_history_short = torch.cat([indices_prefix, indices_latents_history_1x], dim=0)
         else:
-            indices = torch.arange(0, sum([*history_sizes, num_latent_frames_per_chunk]))
+            indices = torch.arange(
+                0,
+                sum([*history_sizes, num_latent_frames_per_chunk]),
+                device=device,
+                dtype=torch.float32,
+            )
             (
                 indices_latents_history_long,
                 indices_latents_history_mid,
@@ -531,6 +540,7 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
             attention_kwargs = {}
 
         vae_dtype = self.vae.dtype
+        latent_chunks_to_decode = []
 
         # Chunked denoising loop
         for k in range(num_latent_chunk):
@@ -645,16 +655,15 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
                 slice(-num_latent_frames_per_chunk, None),
             )
 
-            current_latents = real_history_latents[index_slice].to(vae_dtype) / latents_std + latents_mean
-            current_video = self.vae.decode(current_latents, return_dict=False)[0]
+            if output_type != "latent":
+                current_latents = real_history_latents[index_slice].to(vae_dtype) / latents_std + latents_mean
+                latent_chunks_to_decode.append(current_latents)
 
-            if history_video is None:
-                history_video = current_video
-            else:
-                history_video = torch.cat([history_video, current_video], dim=2)
+        if output_type != "latent" and latent_chunks_to_decode:
+            batched_latents = torch.cat(latent_chunks_to_decode, dim=0)
+            batched_video = self.vae.decode(batched_latents, return_dict=False)[0]
+            history_video = torch.cat(list(batched_video.split(batch_size, dim=0)), dim=2)
 
-        if current_omni_platform.is_available():
-            current_omni_platform.empty_cache()
         self._current_timestep = None
 
         if output_type == "latent":
@@ -688,6 +697,9 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
     ) -> torch.Tensor:
         """Single-stage denoising loop for one chunk."""
         batch_size = latents.shape[0]
+        latents_history_short = latents_history_short.to(transformer_dtype)
+        latents_history_mid = latents_history_mid.to(transformer_dtype)
+        latents_history_long = latents_history_long.to(transformer_dtype)
         do_true_cfg = guidance_scale > 1.0 and negative_prompt_embeds is not None
 
         with self.progress_bar(total=len(timesteps)) as pbar:
@@ -702,9 +714,9 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
                     "indices_latents_history_short": indices_latents_history_short,
                     "indices_latents_history_mid": indices_latents_history_mid,
                     "indices_latents_history_long": indices_latents_history_long,
-                    "latents_history_short": latents_history_short.to(transformer_dtype),
-                    "latents_history_mid": latents_history_mid.to(transformer_dtype),
-                    "latents_history_long": latents_history_long.to(transformer_dtype),
+                    "latents_history_short": latents_history_short,
+                    "latents_history_mid": latents_history_mid,
+                    "latents_history_long": latents_history_long,
                     "attention_kwargs": attention_kwargs,
                     "return_dict": False,
                 }
@@ -783,6 +795,9 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
     ) -> torch.Tensor:
         """Pyramid multi-stage denoising for one chunk."""
         batch_size, num_channel, num_frames_lat, height, width = latents.shape
+        latents_history_short = latents_history_short.to(transformer_dtype)
+        latents_history_mid = latents_history_mid.to(transformer_dtype)
+        latents_history_long = latents_history_long.to(transformer_dtype)
 
         # Downsample latents to the smallest pyramid level
         latents_flat = latents.permute(0, 2, 1, 3, 4).reshape(batch_size * num_frames_lat, num_channel, height, width)
@@ -853,9 +868,9 @@ class HeliosPipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPip
                         "indices_latents_history_short": indices_latents_history_short,
                         "indices_latents_history_mid": indices_latents_history_mid,
                         "indices_latents_history_long": indices_latents_history_long,
-                        "latents_history_short": latents_history_short.to(transformer_dtype),
-                        "latents_history_mid": latents_history_mid.to(transformer_dtype),
-                        "latents_history_long": latents_history_long.to(transformer_dtype),
+                        "latents_history_short": latents_history_short,
+                        "latents_history_mid": latents_history_mid,
+                        "latents_history_long": latents_history_long,
                         "attention_kwargs": attention_kwargs,
                         "return_dict": False,
                     }

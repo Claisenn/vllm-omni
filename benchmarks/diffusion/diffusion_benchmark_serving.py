@@ -68,6 +68,7 @@ import glob
 import json
 import logging
 import os
+import pathlib
 import random
 import tempfile
 import time
@@ -598,6 +599,13 @@ class RandomDataset(BaseDataset):
         if self.enable_negative_prompt:
             extra_body["negative_prompt"] = f"Negative prompt {idx} for benchmarking diffusion models"
 
+        request_fields = {
+            "width",
+            "height",
+            "num_frames",
+            "num_inference_steps",
+            "fps",
+        }
         params = {
             "width": self.args.width,
             "height": self.args.height,
@@ -607,9 +615,11 @@ class RandomDataset(BaseDataset):
         }
         if self._sampled_requests:
             profile = self._sampled_requests[idx]
-            params.update(profile)
+            params.update({key: value for key, value in profile.items() if key in request_fields})
+            extra_body.update({key: value for key, value in profile.items() if key not in request_fields})
+        prompt = self.args.random_prompt or f"Random prompt {idx} for benchmarking diffusion models"
         return RequestFuncInput(
-            prompt=f"Random prompt {idx} for benchmarking diffusion models",
+            prompt=prompt,
             api_url=self.api_url,
             model=self.model,
             seed=self.args.seed,
@@ -869,6 +879,35 @@ def calculate_metrics(
     return metrics
 
 
+def _response_suffix(endpoint: str) -> str:
+    if endpoint == "/v1/videos":
+        return ".mp4"
+    return ".json"
+
+
+def _save_success_responses(
+    outputs: list[RequestFuncOutput],
+    requests_list: list[RequestFuncInput],
+    output_dir: str,
+    endpoint: str,
+) -> list[str]:
+    path = pathlib.Path(output_dir).expanduser().resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    saved_paths: list[str] = []
+    suffix = _response_suffix(endpoint)
+
+    for index, (request, output) in enumerate(zip(requests_list, outputs, strict=False)):
+        if not output.success:
+            continue
+        item_path = path / f"{index:05d}_{request.request_id}{suffix}"
+        if isinstance(output.response_body, bytes):
+            item_path.write_bytes(output.response_body)
+        else:
+            item_path.write_text(json.dumps(output.response_body, indent=2, sort_keys=True), encoding="utf-8")
+        saved_paths.append(str(item_path))
+    return saved_paths
+
+
 def wait_for_service(base_url: str, timeout: int = 120) -> None:
     print(f"Waiting for service at {base_url}...")
     start_time = time.time()
@@ -998,6 +1037,13 @@ async def benchmark(args):
     metrics["model"] = args.model
     metrics["dataset"] = args.dataset
     metrics["task"] = args.task
+    if args.save_response_dir:
+        metrics["saved_responses"] = _save_success_responses(
+            outputs,
+            requests_list,
+            args.save_response_dir,
+            args.endpoint,
+        )
 
     print("\n{s:{c}^{n}}".format(s=" Serving Benchmark Result ", n=50, c="="))
 
@@ -1155,6 +1201,12 @@ if __name__ == "__main__":
     parser.add_argument("--fps", type=int, default=None, help="FPS (for video).")
     parser.add_argument("--output-file", type=str, default=None, help="Output JSON file for metrics.")
     parser.add_argument(
+        "--save-response-dir",
+        type=str,
+        default=None,
+        help="Directory to save successful raw responses. Video responses are saved as MP4 files.",
+    )
+    parser.add_argument(
         "--slo",
         action="store_true",
         help=(
@@ -1188,6 +1240,12 @@ if __name__ == "__main__":
             '[{"width":512,"height":512,"num_inference_steps":20,"weight":0.15},'
             '{"width":768,"height":768,"num_inference_steps":20,"weight":0.85}]'
         ),
+    )
+    parser.add_argument(
+        "--random-prompt",
+        type=str,
+        default=None,
+        help="Prompt to use for every synthetic random request. Defaults to generated placeholder prompts.",
     )
     parser.add_argument(
         "--num-input-images",
