@@ -118,7 +118,25 @@ QUALITY_CONFIGS = [
     QualityTestConfig(
         id="fp8_z_image",
         model="Tongyi-MAI/Z-Image-Turbo",
-        quantization={"method": "fp8", "ignored_layers": ["img_mlp"]},
+        quantization={
+            "transformer": {
+                "method": "fp8",
+                "ignored_layers": [
+                    "img_mlp",
+                    *[
+                        f"layers.{layer_id}.{suffix}"
+                        for layer_id in range(15, 30)
+                        for suffix in (
+                            "attention.to_qkv",
+                            "attention.to_out.0",
+                            "feed_forward.w13",
+                            "feed_forward.w2",
+                        )
+                    ],
+                ],
+            },
+            "default": None,
+        },
         task="t2i",
         prompt=(
             "A breathtaking twilight scene atop a floating archipelago of crystalline islands suspended in an "
@@ -141,7 +159,7 @@ QUALITY_CONFIGS = [
             "starlight waterfalls. Ethereal, melancholic, and transcendent mood—like a moment of quiet revelation "
             "at the edge of existence."
         ),
-        max_lpips=0.15,
+        max_lpips=0.10,
         num_inference_steps=20,
     ),
     QualityTestConfig(

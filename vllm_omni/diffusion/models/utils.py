@@ -19,6 +19,7 @@ from vllm.model_executor.models.utils import maybe_prefix
 
 from vllm_omni.diffusion.data import OmniDiffusionConfig
 from vllm_omni.quantization import build_quant_config
+from vllm_omni.quantization.component_config import ComponentQuantizationConfig
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
@@ -87,7 +88,17 @@ def recursive_replace_linear(model: nn.Module, od_config: OmniDiffusionConfig):
             # Replace modules as needed
             if isinstance(child_module, nn.Linear):
                 style = "replicate"
-                new_module = replace_linear_class(child_module, style, quant_config, prefix=qual_name)
+                child_quant_config = (
+                    quant_config.resolve(qual_name)
+                    if isinstance(quant_config, ComponentQuantizationConfig)
+                    else quant_config
+                )
+                new_module = replace_linear_class(
+                    child_module,
+                    style,
+                    child_quant_config,
+                    prefix=qual_name,
+                )
             else:
                 _recursive_replace(child_module, prefix=qual_name)
             if new_module is not child_module:

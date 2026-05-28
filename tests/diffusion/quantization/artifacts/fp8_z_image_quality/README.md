@@ -13,16 +13,28 @@ VLLM_OMNI_QUALITY_OUTPUT_DIR=$PWD/tests/diffusion/quantization/artifacts/fp8_z_i
 Quantized config:
 
 ```python
-{"method": "fp8", "ignored_layers": ["img_mlp"]}
+{
+    "transformer": {
+        "method": "fp8",
+        "ignored_layers": [
+            "img_mlp",
+            "layers.15..29.{attention.to_qkv,attention.to_out.0,feed_forward.w13,feed_forward.w2}",
+        ],
+    },
+    "default": None,
+}
 ```
 
-Result: failed with the current `max_lpips=0.15` threshold.
+Result: passed with `max_lpips=0.10`.
 
 | Metric | Value |
 |--------|-------|
-| LPIPS | 0.250578 |
-| PSNR | 17.042153 dB |
-| MAE | 0.076899 |
+| LPIPS | 0.096935 |
+| PSNR | 21.893253 dB |
+| MAE | 0.037334 |
+
+Timing from the scan run for this config: BF16 `2.297244s`, FP8 `2.062006s`
+(`0.8976x` of BF16 generation time).
 
 ## Comparison
 
