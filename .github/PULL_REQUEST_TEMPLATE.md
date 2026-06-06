@@ -1,5 +1,5 @@
 <!-- markdownlint-disable -->
-**Before submitting:** run `/precheck-pr` in Claude Code for a self-check against project conventions — catches dead code, missing benchmarks, and title format issues.
+**Before submitting:** run the precheck-pr skill with code agent for a self-check against project conventions — catches dead code, missing benchmarks, and title format issues.
 
 PLEASE FILL IN THE PR DESCRIPTION HERE ENSURING ALL CHECKLIST ITEMS (AT THE BOTTOM) HAVE BEEN CONSIDERED.
 

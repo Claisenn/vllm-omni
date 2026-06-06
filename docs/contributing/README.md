@@ -116,9 +116,9 @@ Only specific types of PRs will be reviewed. The PR title is prefixed appropriat
 !!! note
     If the PR spans more than one category, please include all relevant prefixes.
 
-### Pre-Check with Claude Code
+### Pre-Check Before Submitting
 
-Before submitting a PR, run the `precheck-pr` Claude Code skill for a self-review against project conventions:
+Before submitting a PR, run the precheck-pr skill with code agent for a self-review against project conventions:
 
 ```
 /precheck-pr
