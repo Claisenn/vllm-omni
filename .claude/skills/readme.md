@@ -22,7 +22,12 @@ include:
 - `add-tts-model`: covers integration of new TTS models and related serving
   workflows
 - `generate-release-note`: helps prepare release notes for repository changes
+- `precheck-pr`: self-check a branch before creating a PR — validates PR title
+  format, catches dead code, verifies accuracy/perf claims, and confirms merge
+  readiness
 - `review-pr`: provides a structured workflow for reviewing pull requests
+- `vllm-omni-npu-upgrade`: upgrades NPU model runners to align with the latest
+  vllm-ascend NPUModelRunner
 
 ## Maintenance Guidelines
 
