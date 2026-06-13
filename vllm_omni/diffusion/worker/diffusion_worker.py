@@ -763,9 +763,7 @@ class WorkerProc:
         collect_rank_status = rpc_request.get("collect_rank_status", False)
 
         if collect_rank_status and not exec_all_ranks:
-            raise ValueError(
-                "collect_rank_status requires exec_all_ranks=True so all ranks enter the status gather"
-            )
+            raise ValueError("collect_rank_status requires exec_all_ranks=True so all ranks enter the status gather")
 
         should_execute = exec_all_ranks or output_rank is None or output_rank == self.gpu_id
         should_reply = (output_rank is None or output_rank == self.gpu_id) and self.result_mq is not None
