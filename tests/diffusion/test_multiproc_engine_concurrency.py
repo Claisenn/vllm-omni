@@ -352,6 +352,35 @@ class TestSerialEngineOperations:
 
         assert engine.collective_rpc("remove_lora") == [False]
 
+    def test_collective_rpc_collects_rank_status_only_for_control_plane_all_rank_rpc(self):
+        executor, req_q, res_q = _make_executor(num_gpus=2)
+
+        res_q.put(_tagged_output("forward"))
+        result = executor.collective_rpc(
+            "execute_stepwise",
+            unique_reply_rank=0,
+            exec_all_ranks=True,
+        )
+        forward_rpc = req_q.get_nowait()
+
+        assert result.error == "forward"
+        assert forward_rpc["exec_all_ranks"] is True
+        assert forward_rpc["collect_rank_status"] is False
+
+        res_q.put(
+            {
+                "type": DIFFUSION_RPC_RESULT_ENVELOPE,
+                "method": "remove_lora",
+                "result": True,
+                "rank_statuses": [{"rank": 0, "ok": True, "bool_result": True}],
+            }
+        )
+        assert executor.collective_rpc("remove_lora") == [True]
+        control_rpc = req_q.get_nowait()
+
+        assert control_rpc["exec_all_ranks"] is True
+        assert control_rpc["collect_rank_status"] is True
+
     def test_serial_add_req_then_collective_rpc(self):
         engine, _, req_q, res_q = _make_engine()
         wt = _start_worker(req_q, res_q, count=2)
@@ -466,6 +495,42 @@ class TestWorkerProcRpcRankStatus:
         assert status["error_type"] == "RuntimeError"
         assert status["bool_result"] is None
         assert "local boom" in status["traceback"]
+
+    def test_execute_rpc_rejects_collect_rank_status_without_all_ranks(self):
+        proc = self._make_worker_proc()
+
+        with pytest.raises(ValueError, match="collect_rank_status requires exec_all_ranks=True"):
+            proc.execute_rpc(
+                {
+                    "method": "ping",
+                    "args": (),
+                    "kwargs": {},
+                    "output_rank": 0,
+                    "exec_all_ranks": False,
+                    "collect_rank_status": True,
+                }
+            )
+
+        proc.worker.execute_method.assert_not_called()
+
+    def test_execute_rpc_non_collect_exception_preserves_original_type(self):
+        proc = self._make_worker_proc()
+        original = ValueError("local boom")
+        proc.worker.execute_method = Mock(side_effect=original)
+
+        with pytest.raises(ValueError) as excinfo:
+            proc.execute_rpc(
+                {
+                    "method": "bad",
+                    "args": (),
+                    "kwargs": {},
+                    "output_rank": 0,
+                    "exec_all_ranks": False,
+                    "collect_rank_status": False,
+                }
+            )
+
+        assert excinfo.value is original
 
 
 # ───────── error handling: EngineDeadError propagation through layers ─────

@@ -376,19 +376,20 @@ class MultiprocDiffusionExecutor(DiffusionExecutor):
         deadline = None if timeout is None else time.monotonic() + timeout
         kwargs = kwargs or {}
 
-        # Prepare RPC request message
-        # When unique_reply_rank is None, all workers must execute the RPC
-        # but only rank 0 can reply (it's the only one with a result_mq).
-        collect_rank_status = unique_reply_rank is None or exec_all_ranks
+        # Prepare RPC request message. When unique_reply_rank is None, all
+        # workers must execute the RPC but only rank 0 can reply (it's the
+        # only one with a result_mq). Collect detailed rank statuses only for
+        # this control-plane all-rank path; forward-path exec_all_ranks RPCs
+        # avoid the per-step host object gather.
+        execute_all_ranks = unique_reply_rank is None or exec_all_ranks
+        collect_rank_status = unique_reply_rank is None
         rpc_request = {
             "type": "rpc",
             "method": method,
             "args": args,
             "kwargs": kwargs,
             "output_rank": unique_reply_rank if unique_reply_rank is not None else 0,
-            "exec_all_ranks": unique_reply_rank is None or exec_all_ranks,
-            # This intentionally includes forward-path exec_all_ranks RPCs:
-            # the host status gather prevents silent non-reply-rank failures.
+            "exec_all_ranks": execute_all_ranks,
             "collect_rank_status": collect_rank_status,
         }
 

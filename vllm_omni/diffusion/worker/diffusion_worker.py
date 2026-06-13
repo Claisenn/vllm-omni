@@ -762,6 +762,11 @@ class WorkerProc:
         exec_all_ranks = rpc_request.get("exec_all_ranks", False)
         collect_rank_status = rpc_request.get("collect_rank_status", False)
 
+        if collect_rank_status and not exec_all_ranks:
+            raise ValueError(
+                "collect_rank_status requires exec_all_ranks=True so all ranks enter the status gather"
+            )
+
         should_execute = exec_all_ranks or output_rank is None or output_rank == self.gpu_id
         should_reply = (output_rank is None or output_rank == self.gpu_id) and self.result_mq is not None
 
@@ -769,6 +774,7 @@ class WorkerProc:
             return None, False
 
         result = None
+        rpc_exception: Exception | None = None
         status: dict[str, Any] = {
             "rank": self.gpu_id,
             "ok": True,
@@ -783,6 +789,7 @@ class WorkerProc:
             result = self.worker.execute_method(method, *args, **kwargs)
         except Exception as e:
             logger.error(f"Error executing RPC: {e}", exc_info=True)
+            rpc_exception = e
             status.update(
                 {
                     "ok": False,
@@ -809,8 +816,8 @@ class WorkerProc:
                 )
             return None, False
 
-        if not status["ok"]:
-            raise RuntimeError(status["error"])
+        if rpc_exception is not None:
+            raise rpc_exception
         return result, should_reply
 
     def worker_busy_loop(self) -> None:
