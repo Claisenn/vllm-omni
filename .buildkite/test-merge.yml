@@ -173,9 +173,9 @@ steps:
           - vllm_omni/model_executor/stage_input_processors/qwen3_tts.py
           - vllm_omni/deploy/qwen3_tts.yaml
         commands:
-          # 40m (was 20m): nightly history shows passing runs at ~9-12 min, but
-          # cold-cache runs were killed by the 20m limit (e.g. nightly #2444
-          # died at 25.2m wall), masking the real failure output.
+          # 40m (was 20m): post-rebase runs take 9-12 min warm, but cold-cache
+          # runs exceed 20m and were killed without failure output (a cold run
+          # died at 25.2m wall under the old limit).
           - |
             timeout 40m bash -c "
               export VLLM_LOGGING_LEVEL=DEBUG
@@ -203,9 +203,9 @@ steps:
           - vllm_omni/model_executor/stage_input_processors/qwen3_tts.py
           - vllm_omni/deploy/qwen3_tts.yaml
         commands:
-          # 40m (was 20m): nightly history shows passing runs at ~9-13 min, but
-          # cold-cache runs were killed by the 20m limit (e.g. nightly #2444
-          # died at 25.2m wall), masking the real failure output.
+          # 40m (was 20m): post-rebase runs take 9-13 min warm, but cold-cache
+          # runs exceed 20m and were killed without failure output (a cold run
+          # died at 25.2m wall under the old limit).
           - |
             timeout 40m bash -c "
               export VLLM_LOGGING_LEVEL=DEBUG
@@ -268,13 +268,13 @@ steps:
           - vllm_omni/entrypoints/openai/tts_adapters/indextts2.py
           - vllm_omni/config/pipeline_registry.py
           - vllm_omni/model_executor/models/registry.py
-        # 60m/45m (was 20m/20m): warm runs take a steady ~12.5 min, but the old
-        # 20m limit killed a cold run at 20.7m (nightly #2444, timed_out) with
-        # no failure output.
-        timeout_in_minutes: 60
+        # 40m/35m (was 20m/20m): post-rebase runs take a steady ~12.5 min warm,
+        # but a cold run was killed at 20.7m under the old limit with no
+        # failure output; the rebase-time raise to 60m/45m was oversized.
+        timeout_in_minutes: 40
         commands:
           - |
-            timeout 45m bash -c "
+            timeout 35m bash -c "
               export VLLM_LOGGING_LEVEL=DEBUG
               pytest -s -v tests/e2e/online_serving/test_indextts2.py tests/e2e/offline_inference/test_indextts2.py -m 'advanced_model and cuda' --run-level 'advanced_model'
             "
@@ -299,8 +299,8 @@ steps:
           - vllm_omni/model_executor/models/qwen3_omni/
           - vllm_omni/model_executor/stage_input_processors/qwen3_omni.py
           - vllm_omni/deploy/qwen3_omni_moe.yaml
-        # 50m (was 30m): nightly history shows warm runs at 15-21 min; 30m left
-        # no headroom for cold-cache runs, which were killed without output.
+        # 50m (was 30m): post-rebase runs take 15-21 min warm; 30m left no
+        # headroom for cold-cache runs, which were killed without output.
         timeout_in_minutes: 50
         commands:
           - pytest -s -v tests/e2e/offline_inference/test_qwen3_omni.py tests/e2e/online_serving/test_qwen3_omni.py -m 'advanced_model and cuda' --run-level 'advanced_model'
