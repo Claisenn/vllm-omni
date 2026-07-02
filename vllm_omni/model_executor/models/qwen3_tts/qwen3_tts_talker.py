@@ -266,6 +266,11 @@ class Qwen3TTSTalkerForConditionalGeneration(nn.Module):
     """vLLM-AR talker: step-wise layer-0 codec decoding.
     Predicts residual codebooks (1..Q-1) into `audio_codes` and streams text via `tailing_text_hidden`."""
 
+    # The embedding path always runs in bf16 regardless of the configured
+    # model dtype (encoder weights are cast to bf16 in ``__init__``).  Class
+    # attribute so test stubs built via ``__new__`` inherit it.
+    _embedding_dtype = torch.bfloat16
+
     hf_to_vllm_mapper = WeightsMapper(
         orig_to_new_prefix={
             # Talker backbone (Qwen3 decoder-only).
@@ -411,7 +416,6 @@ class Qwen3TTSTalkerForConditionalGeneration(nn.Module):
             torch.zeros(1, int(self.talker_config.hidden_size), dtype=model_dtype),
             persistent=False,
         )
-        self._embedding_dtype = torch.bfloat16
 
         tokenizer_config = Qwen3TTSTokenizerV2Config.from_pretrained(
             self.model_path,

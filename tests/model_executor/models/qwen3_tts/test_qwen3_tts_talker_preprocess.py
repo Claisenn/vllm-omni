@@ -34,7 +34,6 @@ def _make_minimal_talker(
     """
     model = Qwen3TTSTalkerForConditionalGeneration.__new__(Qwen3TTSTalkerForConditionalGeneration)
     model.talker_config = SimpleNamespace(codec_pad_id=7, num_code_groups=16)
-    model._embedding_dtype = torch.bfloat16
     if tts_pad_embed is None:
         tts_pad_embed = torch.zeros((1, 4), dtype=torch.bfloat16)
     model._tts_pad_embed = tts_pad_embed
@@ -42,7 +41,6 @@ def _make_minimal_talker(
     def _default_raise(**_kwargs):
         raise AssertionError("build_prompt_embeds was not stubbed in this test")
 
-    model._embedding_dtype = torch.bfloat16
     model._prompt_builder = SimpleNamespace(
         build_prompt_embeds=build_prompt_embeds if build_prompt_embeds is not None else _default_raise,
     )
@@ -83,7 +81,6 @@ def _make_minimal_builder(
     builder._codec_embed = lambda ids: torch.zeros((*ids.shape, 4), device=ids.device)
     builder._residual_code_embeddings = lambda: []
     builder._speaker_encoder = None
-    builder._embedding_dtype = torch.bfloat16
     builder._tts_pad_embed_buffer = (
         tts_pad_embed if tts_pad_embed is not None else torch.zeros((1, 4), dtype=torch.bfloat16)
     )
@@ -92,7 +89,6 @@ def _make_minimal_builder(
     )
     builder._speaker_cache = None
     builder._text_tokenizer = None
-    builder._embedding_dtype = torch.bfloat16
     builder._ref_audio_artifact_cache_max_entries = 256
     builder._ref_audio_artifact_cache = OrderedDict()
     builder._resampler_cache = OrderedDict()

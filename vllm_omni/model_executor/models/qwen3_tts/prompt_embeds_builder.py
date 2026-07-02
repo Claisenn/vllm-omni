@@ -302,6 +302,11 @@ class Qwen3TTSPromptEmbedsBuilder:
             artifacts. ``0`` disables the cache.
     """
 
+    # The embedding path always runs in bf16 regardless of the configured
+    # model dtype (mirrors ``Qwen3TTSTalkerForConditionalGeneration``).
+    # Class attribute so test stubs built via ``__new__`` inherit it.
+    _embedding_dtype = torch.bfloat16
+
     def __init__(
         self,
         *,
@@ -329,7 +334,6 @@ class Qwen3TTSPromptEmbedsBuilder:
         self._tts_pad_embed_buffer = tts_pad_embed
         self._encode_ref_audio_batch_fn = encode_ref_audio_batch
         self._speaker_cache = speaker_cache
-        self._embedding_dtype = torch.bfloat16
 
         self._text_tokenizer: Any | None = None
 

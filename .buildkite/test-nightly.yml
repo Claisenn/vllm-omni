@@ -12,6 +12,8 @@ steps:
     if: build.env("NIGHTLY") == "1" || build.pull_request.labels includes "nightly-test" || build.pull_request.labels includes "omni-test"
     steps:
       - label: ":full_moon: Omni · Function Test with H100"
+        # 120m (was 90m before the v0.24.0 rebase): the full_model sweep grew
+        # past 90m and was killed, masking the real failure.
         timeout_in_minutes: 120
         commands:
           - pytest -sv tests/e2e --run-level "full_model" -m "full_model and H100 and omni" --ignore=tests/e2e/accuracy --ignore=tests/e2e/online_serving/test_qwen3_omni_multi_replicas.py
@@ -153,6 +155,8 @@ steps:
 
       - label: ":full_moon: Omni · Perf Test · No Async Chunk"
         key: nightly-omni-performance-no-async-chunk
+        # 300m (was 180m before the v0.24.0 rebase): the no-async-chunk
+        # benchmark sweep exceeded 180m and was killed mid-run.
         timeout_in_minutes: 300
         commands:
           - export BENCHMARK_DIR=tests/dfx/perf/results
@@ -376,6 +380,8 @@ steps:
     if: build.env("NIGHTLY") == "1" || build.pull_request.labels includes "nightly-test" || build.pull_request.labels includes "tts-test"
     steps:
       - label: ":full_moon: TTS · Function Test with L4"
+        # 120m (was 90m before the v0.24.0 rebase): the full_model TTS sweep
+        # grew past 90m and was killed, masking the real failure.
         timeout_in_minutes: 120
         commands:
           - export VLLM_ALLOW_LONG_MAX_MODEL_LEN="1"
@@ -826,6 +832,8 @@ steps:
 
 
       - label: ":full_moon: Diffusion X2I(&A&T) · Function Test with L4"
+        # 120m (was 60m before the v0.24.0 rebase): the X2I function sweep
+        # exceeded 60m and was killed mid-run.
         timeout_in_minutes: 120
         commands:
           - pytest -sv tests/e2e/ -k "not test_wan and not test_bagel_expansion and not hunyuan" -m "full_model and diffusion and L4" --run-level "full_model" --ignore=tests/e2e/accuracy

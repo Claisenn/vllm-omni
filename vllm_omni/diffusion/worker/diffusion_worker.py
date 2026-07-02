@@ -83,7 +83,13 @@ class _DiffusionVllmModelConfig:
 
     @property
     def is_diffusion(self) -> bool:
-        return False
+        # Duck-types ``vllm.config.ModelConfig.is_diffusion``, which detects
+        # *discrete diffusion (dLLM) text models* via ``hf_config.canvas_length``
+        # and gates dLLM-only scheduler/spec-decode paths in vLLM.  Omni's DiT
+        # pipelines run in their own engine and must never enable those paths,
+        # so mirror the upstream check (False for every DiT model) instead of
+        # leaving the attribute missing.
+        return getattr(self.hf_config, "canvas_length", None) is not None
 
 
 def _make_diffusion_vllm_model_config(od_config: OmniDiffusionConfig) -> _DiffusionVllmModelConfig:

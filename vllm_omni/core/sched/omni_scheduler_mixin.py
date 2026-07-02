@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -20,21 +19,12 @@ _STATS_INTERVAL_S = 1.0
 # (the state ``OmniSchedulingCoordinator`` records via ``_waiting_since``)
 # before the scheduler force-fails it.  Defends against stuck consumer-side
 # requests when the producer drops a full-payload, send fails, or recv
-# never arrives.  Override per-deployment via
-# VLLM_OMNI_INPUT_WAIT_TIMEOUT_S; set <=0 to disable the safety net.
+# never arrives.  A value <= 0 disables the safety net.
 #
 # Scope: this constant only covers the full-payload coordinator path
 # (``input_coordinator``).  The async-chunk path uses
 # ``chunk_transfer_adapter`` and is not affected by this constant.
-_INPUT_WAIT_TIMEOUT_RAW = os.environ.get("VLLM_OMNI_INPUT_WAIT_TIMEOUT_S", "600")
-try:
-    DEFAULT_INPUT_WAIT_TIMEOUT_S: float = float(_INPUT_WAIT_TIMEOUT_RAW)
-except ValueError:
-    logger.warning(
-        "Invalid VLLM_OMNI_INPUT_WAIT_TIMEOUT_S=%r; falling back to 600 seconds.",
-        _INPUT_WAIT_TIMEOUT_RAW,
-    )
-    DEFAULT_INPUT_WAIT_TIMEOUT_S = 600.0
+DEFAULT_INPUT_WAIT_TIMEOUT_S: float = 600.0
 
 
 class OmniSchedulerMixin:
