@@ -1601,6 +1601,7 @@ class GPUARModelRunner(OmniGPUModelRunner, OmniConnectorModelRunnerMixin):
         # The actual multimodal wire transport uses multimodal_outputs instead.
         pooler_output: list[dict[str, object]] | None = None
         if needs_pooler_payload:
+            mm_seq_len = int(scheduler_output.total_num_scheduled_tokens)
             mm_cpu = None
             if self.omni_prefix_cache is not None:
                 (
@@ -1656,7 +1657,7 @@ class GPUARModelRunner(OmniGPUModelRunner, OmniConnectorModelRunnerMixin):
                         mm_cpu=mm_cpu,
                         audio_sparse_output=audio_sparse_output,
                         sparse_mm_index=sparse_mm_index,
-                        seq_len=seq_len,
+                        seq_len=mm_seq_len,
                     )
                     pooler_output.append(flatten_payload(payload))
 
