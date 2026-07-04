@@ -3419,7 +3419,7 @@ class TestTTSAsyncOffloading:
     ):
         """FINAL_ONLY streaming for async_chunk=False is scoped to qwen3_tts only."""
         voxtral_server.engine_client.model_config.async_chunk = False
-        voxtral_server._validate_tts_request = mocker.MagicMock(return_value=None)
+        mocker.patch.object(voxtral_server._get_tts_adapter(), "validate", return_value=None)
         voxtral_server._build_voxtral_prompt_async = mocker.AsyncMock(
             return_value={
                 "prompt_token_ids": [1, 2, 3],
