@@ -3504,7 +3504,7 @@ class OmniOpenAIServingSpeech(OpenAIServing, AudioMixin):
         # keep the DELTA coercion they stream with today.
         # list() makes a copy to avoid mutating the params.
         sampling_params_list = list(self.engine_client.default_sampling_params_list)
-        async_chunk = getattr(self.engine_client.model_config, "async_chunk", True)
+        async_chunk = getattr(self.model_config, "async_chunk", True)
         qwen3_full_payload = self._tts_model_type == "qwen3_tts" and not bool(async_chunk)
         is_streaming_request = request.is_streaming() and not qwen3_full_payload
         sampling_params_list = coerce_param_message_types(sampling_params_list, is_streaming_request)

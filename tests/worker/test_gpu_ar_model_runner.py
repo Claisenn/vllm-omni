@@ -169,7 +169,6 @@ def test_build_omni_output_uses_snapshots_and_connector_after_accumulation(monke
         ec_connector_output=None,
         cudagraph_stats=None,
         kv_extracted_req_ids=["r2"],
-        seq_len=3,
         num_scheduled_tokens_np=torch.tensor([1, 2], dtype=torch.int32).numpy(),
         query_start_loc_cpu=torch.tensor([0, 1], dtype=torch.long),
     )
@@ -215,7 +214,6 @@ def test_build_omni_output_copies_hidden_for_partial_downstream_batch(monkeypatc
         ec_connector_output=None,
         cudagraph_stats=None,
         kv_extracted_req_ids=None,
-        seq_len=6,
         num_scheduled_tokens_np=np.array([1, 2, 3], dtype=np.int32),
         query_start_loc_cpu=torch.tensor([0, 1, 3], dtype=torch.long),
     )
@@ -269,7 +267,6 @@ def test_process_additional_information_uses_snapshot_request_order(monkeypatch)
         ec_connector_output=None,
         cudagraph_stats=None,
         kv_extracted_req_ids=None,
-        seq_len=3,
         num_scheduled_tokens_np=torch.tensor([1, 2], dtype=torch.int32).numpy(),
         query_start_loc_cpu=torch.tensor([0, 1], dtype=torch.long),
     )
@@ -330,7 +327,6 @@ def test_build_omni_output_skips_hidden_when_model_opts_out(monkeypatch):
         ec_connector_output=None,
         cudagraph_stats=None,
         kv_extracted_req_ids=None,
-        seq_len=2,
         num_scheduled_tokens_np=np.array([2], dtype=np.int32),
         query_start_loc_cpu=torch.tensor([0], dtype=torch.long),
     )
@@ -377,7 +373,6 @@ def test_build_omni_output_splits_mm_by_scheduled_tokens_when_hidden_is_tail_onl
         ec_connector_output=None,
         cudagraph_stats=None,
         kv_extracted_req_ids=None,
-        seq_len=1,
         num_scheduled_tokens_np=np.array([1, 1, 1], dtype=np.int32),
         query_start_loc_cpu=torch.tensor([0, 1, 2], dtype=torch.long),
     )
@@ -535,7 +530,6 @@ def test_build_omni_output_falls_back_to_mm_cpu_without_prefix_merge(monkeypatch
         ec_connector_output=None,
         cudagraph_stats=None,
         kv_extracted_req_ids=None,
-        seq_len=2,
         num_scheduled_tokens_np=np.array([1, 1], dtype=np.int32),
         query_start_loc_cpu=torch.tensor([0, 1], dtype=torch.long),
     )
