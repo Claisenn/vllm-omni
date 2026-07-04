@@ -3497,14 +3497,16 @@ class OmniOpenAIServingSpeech(OpenAIServing, AudioMixin):
 
         # If this is a streaming request with real async chunks, we need to
         # coerce cumulative outputs to delta outputs; this ensures we don't
-        # emit redundant MM data & drain after emitting. Full-payload
-        # (async_chunk=False) TTS has no incremental audio chunks, so keep
+        # emit redundant MM data & drain after emitting. Qwen3-TTS full-payload
+        # (async_chunk=False) has no incremental audio chunks, so keep
         # FINAL_ONLY semantics and let the streaming response send the final
-        # waveform once.
+        # waveform once. Scoped to qwen3_tts: other async_chunk=False models
+        # keep the DELTA coercion they stream with today.
         # list() makes a copy to avoid mutating the params.
         sampling_params_list = list(self.engine_client.default_sampling_params_list)
         async_chunk = getattr(self.engine_client.model_config, "async_chunk", True)
-        is_streaming_request = request.is_streaming() and bool(async_chunk)
+        qwen3_full_payload = self._tts_model_type == "qwen3_tts" and not bool(async_chunk)
+        is_streaming_request = request.is_streaming() and not qwen3_full_payload
         sampling_params_list = coerce_param_message_types(sampling_params_list, is_streaming_request)
 
         # Build prompt + tts_params via the per-model adapter (RFC #4327). Every
