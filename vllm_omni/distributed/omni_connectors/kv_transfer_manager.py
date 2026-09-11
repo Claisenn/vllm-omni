@@ -1050,12 +1050,29 @@ class OmniKVTransferManager:
             cache_dtype: Data type of the cache
             custom_metadata: Optional custom metadata to include
 
-        Note: If key/value block counts differ, extraction uses only the overlapping
-        block range. Extra key/value blocks are ignored, so returned KV may be partial.
-
         Returns:
             KVCacheTransferData if extraction successful, None otherwise
         """
+        if block_size <= 0:
+            logger.warning("Request %s has invalid KV block size %s", req_id, block_size)
+            return None
+        if seq_len <= 0:
+            logger.warning("Request %s has invalid KV sequence length %s", req_id, seq_len)
+            return None
+
+        required_block_count = (seq_len + block_size - 1) // block_size
+        if len(block_ids) < required_block_count:
+            logger.warning(
+                "Request %s needs %s KV blocks for seq_len=%s and block_size=%s, but only %s block IDs were provided",
+                req_id,
+                required_block_count,
+                seq_len,
+                block_size,
+                len(block_ids),
+            )
+            return None
+        required_block_ids = block_ids[:required_block_count]
+
         num_layers = len(kv_caches)
         key_cache: list[torch.Tensor | None] = [None] * num_layers
         value_cache: list[torch.Tensor | None] = [None] * num_layers
@@ -1063,41 +1080,55 @@ class OmniKVTransferManager:
         for layer_idx, layer_kv in enumerate(kv_caches):
             kv_pair = normalize_layer_kv(layer_kv, req_id=req_id, layer_idx=layer_idx, block_size=block_size)
             if kv_pair is None:
-                continue
+                logger.warning(
+                    "Rejecting incomplete KV extraction for request %s: layer %s could not be normalized",
+                    req_id,
+                    layer_idx,
+                )
+                return None
             key_blocks, value_blocks = kv_pair
 
+            available_blocks = min(key_blocks.shape[0], value_blocks.shape[0])
             if key_blocks.shape[0] != value_blocks.shape[0]:
                 logger.warning(
-                    f"Layer {layer_idx} for request {req_id} has mismatched KV block counts: "
-                    f"key={key_blocks.shape[0]}, value={value_blocks.shape[0]}; using shared range"
+                    "Layer %s for request %s has mismatched KV block counts: key=%s, value=%s",
+                    layer_idx,
+                    req_id,
+                    key_blocks.shape[0],
+                    value_blocks.shape[0],
                 )
 
-            # Validate block IDs - shape: [num_blocks, block_size, n_heads, head_dim]
-            max_block = min(key_blocks.shape[0], value_blocks.shape[0]) - 1
-            valid_ids = [bid for bid in block_ids if 0 <= bid <= max_block]
-            if not valid_ids:
-                continue
+            invalid_ids = [block_id for block_id in required_block_ids if not 0 <= block_id < available_blocks]
+            if invalid_ids:
+                logger.warning(
+                    "Rejecting incomplete KV extraction for request %s: layer %s cannot provide block IDs %s "
+                    "(available blocks=%s)",
+                    req_id,
+                    layer_idx,
+                    invalid_ids,
+                    available_blocks,
+                )
+                return None
 
             # Extract and reshape: [n_blocks, block_size, n_heads, head_dim]
             # -> [seq_len, n_heads, head_dim]
-            selected_k = key_blocks[valid_ids]
-            selected_v = value_blocks[valid_ids]
+            selected_k = key_blocks[required_block_ids]
+            selected_v = value_blocks[required_block_ids]
             flat_k = selected_k.flatten(0, 1)
             flat_v = selected_v.flatten(0, 1)
-            if seq_len < flat_k.shape[0]:
-                flat_k = flat_k[:seq_len]
-                flat_v = flat_v[:seq_len]
+            flat_k = flat_k[:seq_len]
+            flat_v = flat_v[:seq_len]
 
             key_cache[layer_idx] = flat_k.detach().contiguous()
             value_cache[layer_idx] = flat_v.detach().contiguous()
 
-        if not any(k is not None for k in key_cache):
+        if not key_cache:
             return None
 
         return KVCacheTransferData(
             request_id=req_id,
             layer_blocks={"key_cache": key_cache, "value_cache": value_cache},
-            block_ids=block_ids,
+            block_ids=required_block_ids,
             metadata={
                 "block_size": block_size,
                 "num_layers": num_layers,
