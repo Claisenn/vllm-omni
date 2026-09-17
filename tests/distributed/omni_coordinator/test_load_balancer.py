@@ -359,7 +359,6 @@ def test_topology_aware_balancer_handles_none_domain_replicas():
 
 def test_detect_topology_domain_prefers_env_var(monkeypatch):
     monkeypatch.setenv("OMNI_TOPOLOGY_DOMAIN", "nvlink-group-1")
-    from vllm_omni.distributed.omni_coordinator import detect_topology_domain
 
     assert detect_topology_domain() == "nvlink-group-1"
 
@@ -367,7 +366,5 @@ def test_detect_topology_domain_prefers_env_var(monkeypatch):
 def test_detect_topology_domain_falls_back_to_hostname(monkeypatch):
     monkeypatch.delenv("OMNI_TOPOLOGY_DOMAIN", raising=False)
     import socket
-
-    from vllm_omni.distributed.omni_coordinator import detect_topology_domain
 
     assert detect_topology_domain() == socket.gethostname()

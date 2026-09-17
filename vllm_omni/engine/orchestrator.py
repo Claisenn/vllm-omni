@@ -691,9 +691,7 @@ class Orchestrator:
         )
 
         if self.async_chunk and stage_id == 0 and final_stage_id > 0:
-            await self._prewarm_async_chunk_stages(
-                request_id, prompt, req_state, stage0_replica_id=stage0_replica_id
-            )
+            await self._prewarm_async_chunk_stages(request_id, prompt, req_state, stage0_replica_id=stage0_replica_id)
 
     async def _handle_streaming_update(self, msg: StageSubmissionMessage) -> None:
         """Handle a streaming_update message for an existing request."""
@@ -729,9 +727,7 @@ class Orchestrator:
 
         if self.async_chunk and stage_id == 0 and final_stage_id > 0:
             stage0_replica_id = self.stage_pools[stage_id].get_bound_replica_id(request_id)
-            await self._prewarm_async_chunk_stages(
-                request_id, request, req_state, stage0_replica_id=stage0_replica_id
-            )
+            await self._prewarm_async_chunk_stages(request_id, request, req_state, stage0_replica_id=stage0_replica_id)
 
     async def _handle_add_companion(self, msg: AddCompanionRequestMessage) -> None:
         """Handle an add_companion_request message: submit companion to stage 0."""
@@ -1762,11 +1758,7 @@ class Orchestrator:
         # the same NVLink/NUMA/IB domain as the producer-stage replica so the
         # KV-cache / hidden-state transfer stays on a fast local link.
         src_pool = self.stage_pools[src_stage_id]
-        topology_domain = (
-            src_pool.get_replica_topology_domain(src_replica_id)
-            if src_replica_id is not None
-            else None
-        )
+        topology_domain = src_pool.get_replica_topology_domain(src_replica_id) if src_replica_id is not None else None
 
         if next_pool.stage_type == "diffusion":
             # Gate: never dispatch with an incomplete CFG bundle. Checked
@@ -2077,9 +2069,7 @@ class Orchestrator:
             )
 
             if already_submitted:
-                replica_id = await next_pool.submit_update(
-                    req_id, req_state, request, topology_domain=topology_domain
-                )
+                replica_id = await next_pool.submit_update(req_id, req_state, request, topology_domain=topology_domain)
             else:
                 replica_id = await next_pool.submit_initial(
                     req_id, req_state, request, prompt_text=None, topology_domain=topology_domain
@@ -2120,14 +2110,6 @@ class Orchestrator:
         if req_state.final_stage_id <= 0:
             return
 
-        # Seed the topology hint chain from stage 0's chosen replica.
-        src_pool = self.stage_pools[0]
-        topology_domain = (
-            src_pool.get_replica_topology_domain(stage0_replica_id)
-            if stage0_replica_id is not None
-            else None
-        )
-
         prompt_token_ids = getattr(stage0_request, "prompt_token_ids", None)
         if prompt_token_ids is None:
             logger.warning(
@@ -2145,6 +2127,22 @@ class Orchestrator:
                 # execute before that conditioning payload arrives.
                 continue
 
+            producer_stage_ids = list(
+                getattr(next_pool.stage_client, "engine_input_source", None) or [next_stage_id - 1]
+            )
+            producer_stage_id = producer_stage_ids[0]
+            producer_pool = self.stage_pools[producer_stage_id]
+            producer_replica_id = (
+                stage0_replica_id
+                if producer_stage_id == 0 and stage0_replica_id is not None
+                else producer_pool.get_bound_replica_id(request_id)
+            )
+            topology_domain = (
+                producer_pool.get_replica_topology_domain(producer_replica_id)
+                if producer_replica_id is not None
+                else None
+            )
+
             req_state.stage_submit_ts[next_stage_id] = _time.time()
             _t_submit_start = _time.perf_counter()
 
@@ -2155,7 +2153,7 @@ class Orchestrator:
                     req_state.prompt,
                     submit_kwargs={
                         "kv_sender_info": self._build_kv_sender_info(
-                            list(getattr(next_pool.stage_client, "engine_input_source", None) or [next_stage_id - 1]),
+                            producer_stage_ids,
                             request_id=request_id,
                         )
                     },
@@ -2202,10 +2200,6 @@ class Orchestrator:
                 replica_id,
                 req_state,
             )
-
-            # Chain the topology hint: the stage we just prewarmed becomes the
-            # producer for the next stage in the loop.
-            topology_domain = next_pool.get_replica_topology_domain(replica_id)
 
             # async_chunk pre-submit fires per stage edge (N-1 -> N). Source
             # replica is stage 0's bound replica (single-replica thinker in

@@ -105,7 +105,14 @@ class FakeInputProcessor:
 class FakePrewarmPool:
     stage_type = "llm"
 
-    def __init__(self, role: str) -> None:
+    def __init__(
+        self,
+        role: str,
+        *,
+        engine_input_source: list[int] | None = None,
+        topology_domain: str | None = None,
+    ) -> None:
+        self.stage_client = SimpleNamespace(engine_input_source=engine_input_source)
         self.stage_vllm_config = SimpleNamespace(
             model_config=SimpleNamespace(
                 max_model_len=64,
@@ -113,13 +120,19 @@ class FakePrewarmPool:
             )
         )
         self.submitted: list[Any] = []
+        self.submit_kwargs: list[dict[str, Any]] = []
+        self.topology_domain = topology_domain
 
-    async def submit_initial(self, _request_id, _req_state, request, prompt_text=None):
+    async def submit_initial(self, _request_id, _req_state, request, prompt_text=None, **kwargs):
         self.submitted.append(request)
+        self.submit_kwargs.append(kwargs)
         return 0
 
     def get_bound_replica_id(self, _request_id):
         return 0
+
+    def get_replica_topology_domain(self, _replica_id):
+        return self.topology_domain
 
 
 def _duplex_stage_port_submission():
@@ -242,9 +255,9 @@ async def test_forward_text_prompt_uses_target_stage_input_processor() -> None:
 @pytest.mark.asyncio
 async def test_async_prewarm_skips_outgoing_only_stage() -> None:
     orchestrator = object.__new__(Orchestrator)
-    stage0 = FakePrewarmPool("sender")
+    stage0 = FakePrewarmPool("sender", topology_domain="node-a")
     stage1 = FakePrewarmPool("sender")
-    stage2 = FakePrewarmPool("receiver")
+    stage2 = FakePrewarmPool("receiver", engine_input_source=[0])
     orchestrator.stage_pools = [stage0, stage1, stage2]
     orchestrator._emit_tx_edge = lambda **_kwargs: None
     orchestrator._record_duplex_stage_submission = MagicMock()
@@ -260,10 +273,12 @@ async def test_async_prewarm_skips_outgoing_only_stage() -> None:
         "req-prewarm",
         SimpleNamespace(prompt_token_ids=[1, 2], resumable=True),
         req_state,
+        stage0_replica_id=0,
     )
 
     assert stage1.submitted == []
     assert len(stage2.submitted) == 1
+    assert stage2.submit_kwargs == [{"topology_domain": "node-a"}]
     assert 1 not in req_state.stage_submit_ts
     assert 2 in req_state.stage_submit_ts
     orchestrator._record_duplex_stage_submission.assert_called_once_with(
@@ -282,7 +297,12 @@ async def test_duplex_prewarm_runs_after_first_stage0_submission() -> None:
 
     assert result.stage_id == 0
     stage_pools[0].submit_initial.assert_awaited_once()
-    prewarm.assert_awaited_once_with("req-duplex", ANY, request_states["req-duplex"])
+    prewarm.assert_awaited_once_with(
+        "req-duplex",
+        ANY,
+        request_states["req-duplex"],
+        stage0_replica_id=10,
+    )
 
 
 @pytest.mark.asyncio
