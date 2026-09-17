@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM-Omni project
+
 import json
 import struct
 
@@ -7,10 +10,11 @@ import torch
 import vllm_omni.distributed.omni_connectors.kv_transfer_manager as kv_transfer_manager_module
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 from vllm_omni.distributed.omni_connectors.kv_transfer_manager import (
-    KVCacheTransferData,
+    KVPrefetchConsumeError,
     OmniKVCacheConfig,
     OmniKVTransferManager,
 )
+from vllm_omni.distributed.omni_connectors.kv_transfer_payload import KVCacheTransferData
 from vllm_omni.distributed.omni_connectors.utils.kv_utils import normalize_layer_kv
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 
@@ -272,6 +276,11 @@ def test_kv_payload_contract_rejects_incomplete_payload(mutate, error):
     mutate(payload)
     with pytest.raises(ValueError, match=error):
         KVCacheTransferData.validate_payload_contract(payload, "req-contract")
+
+
+def test_kv_payload_contract_rejects_non_dictionary_payload():
+    with pytest.raises(ValueError, match="must be a dictionary"):
+        KVCacheTransferData.validate_payload_contract(None, "req-contract")
 
 
 def test_update_sender_info_uses_configured_source_stage():
@@ -585,9 +594,29 @@ def test_manager_reception_rejects_invalid_contract_without_injecting(kv_config,
         request_id=req_id,
     )
 
-    assert manager.receive_kv_cache(req, target_device=torch.device("cpu")) is False
+    with pytest.raises(KVPrefetchConsumeError, match="payload already consumed"):
+        manager.receive_kv_cache(req, target_device=torch.device("cpu"))
     assert not hasattr(req, "past_key_values")
     assert not hasattr(req, "kv_metadata")
+
+
+def test_manager_reception_rejects_contract_removed_by_slicer(kv_config, mock_connector):
+    req_id = "req-contract-downgrade"
+    data_to_receive = _contract_payload(request_id=req_id)
+    store_key = f"stage1->stage2:omni_stage1_to_stage2_kv_cache_{req_id}"
+    mock_connector.store[store_key] = data_to_receive
+
+    manager = OmniKVTransferManager(kv_config)
+    manager._connector = mock_connector
+
+    def remove_contract(payload):
+        payload["metadata"].pop("_kv_payload_contract")
+        return payload
+
+    manager.kv_payload_slicer = remove_contract
+
+    with pytest.raises(KVPrefetchConsumeError, match="payload already consumed"):
+        manager.receive_kv_cache_for_request(req_id, target_device=torch.device("cpu"))
 
 
 def test_manager_reception_prefers_parent_request_id_for_batched_request(kv_config, mock_connector, common_constants):
